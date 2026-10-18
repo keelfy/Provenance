@@ -1,5 +1,0 @@
-name: Provenance
-version: '${version}'
-main: dev.keelfy.provenance.ProvenancePlugin
-api-version: '26.3'
-description: Probabilistic item provenance and player correlation

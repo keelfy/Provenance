@@ -1,0 +1,10 @@
+name: Provenance
+version: '${version}'
+main: dev.keelfy.provenance.ProvenancePlugin
+api-version: '26.3'
+loader: dev.keelfy.provenance.ProvenanceLoader
+description: Probabilistic item provenance and player correlation
+permissions:
+  provenance.admin:
+    description: Use /prov
+    default: op
