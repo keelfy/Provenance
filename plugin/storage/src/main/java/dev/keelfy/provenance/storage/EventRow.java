@@ -3,6 +3,7 @@ package dev.keelfy.provenance.storage;
 import dev.keelfy.provenance.core.Cause;
 import dev.keelfy.provenance.core.Envelope;
 import dev.keelfy.provenance.core.HolderId;
+import dev.keelfy.provenance.core.HolderInfo;
 import dev.keelfy.provenance.core.ItemKey;
 import dev.keelfy.provenance.core.Kind;
 import dev.keelfy.provenance.core.LedgerEvent;
@@ -15,7 +16,9 @@ import org.jspecify.annotations.Nullable;
 /**
  * Flat column form of an {@link Envelope}. {@code holder}/{@code other} are encoded as {@code KIND/id}. {@code detail}
  * carries the maps of a conversion as {@code |item=n|item=n|>|item=n|}; item keys never contain {@code | = >}.
- * {@code durable} marks events that involve a player or create items: they outlive plain automation.
+ * {@code durable} marks events that involve a player or create items: they outlive plain automation. The type and
+ * custom name of a block or entity are stored with each event ({@code holderInfo}, {@code otherInfo}): a block is only
+ * coordinates, and what stands there changes.
  *
  * @author keelfy
  */
@@ -31,9 +34,51 @@ record EventRow(
         @Nullable String origin,
         @Nullable String custody,
         @Nullable String detail,
-        boolean durable) {
+        boolean durable,
+        @Nullable HolderInfo holderInfo,
+        @Nullable HolderInfo otherInfo) {
+
+    EventRow(
+            long seq,
+            long time,
+            String cause,
+            String type,
+            String holder,
+            @Nullable String other,
+            @Nullable String item,
+            long amount,
+            @Nullable String origin,
+            @Nullable String custody,
+            @Nullable String detail,
+            boolean durable) {
+        this(seq, time, cause, type, holder, other, item, amount, origin, custody, detail, durable, null, null);
+    }
 
     static EventRow of(Envelope envelope) {
+        val event = envelope.event();
+        val other = event instanceof LedgerEvent.Transferred transfer ? transfer.to() : null;
+        return plain(envelope).described(event.holder().info(), other == null ? null : other.info());
+    }
+
+    private EventRow described(@Nullable HolderInfo holderInfo, @Nullable HolderInfo otherInfo) {
+        return new EventRow(
+                seq,
+                time,
+                cause,
+                type,
+                holder,
+                other,
+                item,
+                amount,
+                origin,
+                custody,
+                detail,
+                durable,
+                holderInfo,
+                otherInfo);
+    }
+
+    private static EventRow plain(Envelope envelope) {
         val seq = envelope.seq();
         val time = envelope.time();
         val cause = envelope.cause().key();
@@ -115,14 +160,14 @@ record EventRow(
     }
 
     Envelope toEnvelope() {
-        val holderId = decodeHolder(holder);
+        val holderId = decodeHolder(holder, holderInfo);
         val itemKey = item == null ? null : new ItemKey(item);
         val event = switch (type) {
             case "MINTED" -> new LedgerEvent.Minted(holderId, itemKey, amount, new OriginId(origin));
             case "TRANSFERRED" ->
                 new LedgerEvent.Transferred(
                         holderId,
-                        decodeHolder(other),
+                        decodeHolder(other, otherInfo),
                         itemKey,
                         amount,
                         VectorCodec.decode(custody == null ? "" : custody));
@@ -142,9 +187,9 @@ record EventRow(
         return holder.kind().name() + "/" + holder.id();
     }
 
-    private static HolderId decodeHolder(String text) {
+    private static HolderId decodeHolder(String text, @Nullable HolderInfo info) {
         val split = text.indexOf('/');
-        return new HolderId(Kind.valueOf(text.substring(0, split)), text.substring(split + 1));
+        return new HolderId(Kind.valueOf(text.substring(0, split)), text.substring(split + 1), info);
     }
 
     private static String encode(Map<ItemKey, Long> items) {

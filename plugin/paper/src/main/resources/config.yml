@@ -35,3 +35,16 @@ commands:
   link-rows: 10
   # Origins listed in a "share" line.
   top-origins: 6
+
+# Web viewer: /prov web ... posts a snapshot of the events to your Provenance web server and prints a one-time link.
+web:
+  # Base URL of the web server, e.g. https://prov.example.com. Empty switches /prov web off.
+  endpoint: ""
+  # Shared secret that signs requests; must equal PROVENANCE_SECRET on the web server.
+  secret: ""
+  # How long a link stays valid.
+  ttl-hours: 24
+  # How many holders away from the starting point events are followed.
+  depth: 2
+  # Most events in one snapshot; the newest are kept.
+  max-events: 2000

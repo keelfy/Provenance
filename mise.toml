@@ -1,0 +1,22 @@
+[tools]
+java = "temurin-25.0.4+7.0.LTS"
+
+[tasks."web:dev"]
+description = "Запустить фронт (dev, http://localhost:3000)"
+dir = "web"
+run = "bun --bun run dev"
+
+[tasks."web:build"]
+description = "Собрать фронт (standalone)"
+dir = "web"
+run = "bun install --frozen-lockfile && bun --bun run build"
+
+[tasks."plugin:run"]
+description = "Запустить тестовый Paper-сервер с плагином"
+dir = "plugin"
+run = "./gradlew runServer"
+
+[tasks."plugin:build"]
+description = "Собрать плагин (jar + тесты)"
+dir = "plugin"
+run = "./gradlew build"

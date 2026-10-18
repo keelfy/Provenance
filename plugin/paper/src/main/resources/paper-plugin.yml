@@ -8,3 +8,6 @@ permissions:
   provenance.admin:
     description: Use /prov
     default: op
+  provenance.web:
+    description: Create and revoke web viewer links (/prov web), on top of provenance.admin
+    default: op

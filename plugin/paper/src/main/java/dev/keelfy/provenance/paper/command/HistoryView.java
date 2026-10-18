@@ -26,12 +26,17 @@ public class HistoryView {
 
     public Component line(Envelope envelope, long now, int top) {
         val event = envelope.event();
-        val suspicious = event instanceof LedgerEvent.Minted minted
-                && (minted.origin().equals(OriginId.UNKNOWN) || minted.origin().equals(OriginId.CREATIVE));
+        val suspicious = suspicious(event);
 
         return Component.text(
                         age(now - envelope.time()) + " " + envelope.cause().key() + " ", NamedTextColor.DARK_GRAY)
                 .append(Component.text(describe(event, top), suspicious ? NamedTextColor.RED : NamedTextColor.GRAY));
+    }
+
+    /** Mints out of nowhere. */
+    public boolean suspicious(LedgerEvent event) {
+        return event instanceof LedgerEvent.Minted minted
+                && (minted.origin().equals(OriginId.UNKNOWN) || minted.origin().equals(OriginId.CREATIVE));
     }
 
     private String describe(LedgerEvent event, int top) {

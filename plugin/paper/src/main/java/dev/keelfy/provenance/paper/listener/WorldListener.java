@@ -162,8 +162,17 @@ public final class WorldListener implements Listener {
         val killer = entity.getKiller();
         val origin = killer != null ? Players.origin(killer) : OriginId.MOB;
         val holder = Holders.of(entity);
-        val from = ledger.getPools(holder).isEmpty() ? null : holder;
-        contexts.add(entity.getLocation(), settings.blockRadius(), new SpawnSource(from, origin, Cause.KILL));
+        // The creature drops its loot: that way the history says what was killed. What it already carried stays its
+        // own.
+        for (val drop : event.getDrops()) {
+            ItemKeys.count(drop).forEach((key, amount) -> {
+                val missing = amount - ledger.getCount(holder, key);
+                if (missing > 0) {
+                    ledger.mint(Cause.KILL, holder, key, missing, origin);
+                }
+            });
+        }
+        contexts.add(entity.getLocation(), settings.blockRadius(), new SpawnSource(holder, origin, Cause.KILL));
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)

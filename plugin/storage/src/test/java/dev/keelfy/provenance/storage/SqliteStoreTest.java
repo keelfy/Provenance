@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.offset;
 import dev.keelfy.provenance.core.Cause;
 import dev.keelfy.provenance.core.Envelope;
 import dev.keelfy.provenance.core.HolderId;
+import dev.keelfy.provenance.core.HolderInfo;
 import dev.keelfy.provenance.core.ItemKey;
 import dev.keelfy.provenance.core.Ledger;
 import dev.keelfy.provenance.core.LedgerChanges;
@@ -242,6 +243,51 @@ class SqliteStoreTest {
 
             // Nothing is returned from before the window.
             assertThat(store.trace(bob, null, 1001, 9, 100).events()).isEmpty();
+        }
+    }
+
+    @Test
+    void traceWalksThroughDroppedItemsWithoutSpendingDepth() throws Exception {
+        val info = new HolderInfo("minecraft:item", null);
+        val first = HolderId.entity(UUID.randomUUID()).described(info);
+        val second = HolderId.entity(UUID.randomUUID()).described(info);
+        val ledger = new Ledger();
+        ledger.mint(Cause.MINE, first, DIAMOND, 1, bob.asPlayerOrigin()); // 1
+        ledger.transfer(Cause.DROP, first, second, DIAMOND, 1); // 2: the stacks merge
+        ledger.transfer(Cause.PICKUP, second, bob, DIAMOND, 1); // 3
+
+        try (val store = new SqliteStore(dir.resolve("m.db"), RETENTION)) {
+            store.write(ledger.drainChanges());
+
+            assertThat(store.trace(bob, null, 0, 1, 100).events())
+                    .extracting(Envelope::seq)
+                    .containsExactly(1L, 2L, 3L);
+        }
+    }
+
+    @Test
+    void eachEventKeepsTheTypeAndNameHoldersHadAtTheTime() throws Exception {
+        val ledger = new Ledger();
+        val oldChest = chest.described(new HolderInfo("minecraft:chest", null));
+        val furnace = chest.described(new HolderInfo("minecraft:furnace", null));
+        val villager = HolderId.entity(UUID.randomUUID()).described(new HolderInfo("minecraft:villager", "Bob"));
+        ledger.mint(CAUSE, oldChest, DIAMOND, 10, alice);
+        ledger.transfer(CAUSE, oldChest, villager, DIAMOND, 4);
+        ledger.mint(CAUSE, furnace, DIAMOND, 1, alice);
+
+        try (val store = new SqliteStore(dir.resolve("l.db"), RETENTION)) {
+            store.write(ledger.drainChanges());
+            val events = store.trace(chest, null, 0, 2, 10).events();
+
+            assertThat(events)
+                    .extracting(e -> e.event().holder().info())
+                    .containsExactly(
+                            new HolderInfo("minecraft:chest", null),
+                            new HolderInfo("minecraft:chest", null),
+                            new HolderInfo("minecraft:furnace", null));
+            val transfer = (LedgerEvent.Transferred) events.get(1).event();
+            assertThat(transfer.to().info()).isEqualTo(new HolderInfo("minecraft:villager", "Bob"));
+            assertThat(transfer.to().info().displayName()).isEqualTo("Bob");
         }
     }
 

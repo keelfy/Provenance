@@ -27,7 +27,12 @@ public record Settings(
         int blockRows,
         int playerRows,
         int linkRows,
-        int topOrigins) {
+        int topOrigins,
+        String webEndpoint,
+        String webSecret,
+        int webTtlHours,
+        int webDepth,
+        int webMaxEvents) {
 
     private static final int TICKS_PER_SECOND = 20;
 
@@ -54,7 +59,23 @@ public record Settings(
                 (int) whole(config, "commands.block-rows"),
                 (int) whole(config, "commands.player-rows"),
                 (int) whole(config, "commands.link-rows"),
-                (int) whole(config, "commands.top-origins"));
+                (int) whole(config, "commands.top-origins"),
+                trimmed(config, "web.endpoint"),
+                trimmed(config, "web.secret"),
+                (int) whole(config, "web.ttl-hours"),
+                (int) whole(config, "web.depth"),
+                (int) whole(config, "web.max-events"));
+    }
+
+    /** An empty endpoint or secret switches the web viewer off. */
+    public boolean webEnabled() {
+        return !webEndpoint.isEmpty() && !webSecret.isEmpty();
+    }
+
+    /** Drops a trailing slash so paths can be appended. */
+    private static String trimmed(ConfigurationSection config, String key) {
+        val value = config.getString(key, "").trim();
+        return value.endsWith("/") ? value.substring(0, value.length() - 1) : value;
     }
 
     private static long whole(ConfigurationSection config, String key) {

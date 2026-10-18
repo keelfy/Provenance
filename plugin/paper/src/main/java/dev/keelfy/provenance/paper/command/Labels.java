@@ -1,6 +1,7 @@
 package dev.keelfy.provenance.paper.command;
 
 import dev.keelfy.provenance.core.HolderId;
+import dev.keelfy.provenance.core.HolderInfo;
 import dev.keelfy.provenance.core.OriginId;
 import dev.keelfy.provenance.core.TaintVector;
 import java.util.Map;
@@ -8,6 +9,7 @@ import java.util.stream.Collectors;
 import lombok.experimental.UtilityClass;
 import lombok.val;
 import org.bukkit.Bukkit;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Human-readable names for origins and vectors in command output.
@@ -34,6 +36,18 @@ public class Labels {
             case PLAYER -> of(holder.asPlayerOrigin());
             case BLOCK -> holder.id().replace(':', ' ');
             case ENTITY -> "entity " + holder.id().substring(0, 8);
+        };
+    }
+
+    /**
+     * What a holder is, without its id: the player's name, or the custom name / type recorded with the event. The web
+     * viewer shows the id next to it.
+     */
+    public String name(HolderId holder, @Nullable HolderInfo info) {
+        return switch (holder.kind()) {
+            case PLAYER -> of(holder.asPlayerOrigin());
+            case BLOCK -> info != null ? info.displayName() : "Block";
+            case ENTITY -> info != null ? info.displayName() : "Entity";
         };
     }
 

@@ -5,6 +5,7 @@ import dev.keelfy.provenance.core.HolderId;
 import dev.keelfy.provenance.core.ItemKey;
 import dev.keelfy.provenance.core.Ledger;
 import dev.keelfy.provenance.storage.SqliteStore;
+import dev.keelfy.provenance.storage.Trace;
 import dev.keelfy.provenance.storage.WriteBehind;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -64,6 +65,12 @@ public class ProvenanceStorage {
     public CompletableFuture<List<Envelope>> history(HolderId holder, @Nullable ItemKey item, int limit) {
         flush();
         return writer.history(holder, item, limit);
+    }
+
+    /** Events within {@code depth} holders of {@code root}; see {@link WriteBehind#trace}. */
+    public CompletableFuture<Trace> trace(HolderId root, @Nullable ItemKey item, int depth, int limit) {
+        flush();
+        return writer.trace(root, item, 0, depth, limit);
     }
 
     void flush() {
