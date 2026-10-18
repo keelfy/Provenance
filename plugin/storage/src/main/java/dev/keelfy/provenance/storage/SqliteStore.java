@@ -13,7 +13,9 @@ import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.TreeMap;
 import lombok.val;
 import org.jspecify.annotations.Nullable;
 
@@ -196,25 +198,70 @@ public final class SqliteStore implements ChangeSink {
 
     @Override
     public List<Envelope> history(HolderId holder, @Nullable ItemKey item, int limit) throws SQLException {
-        val sql = "SELECT " + EVENT_COLUMNS + " FROM event WHERE (holder = ?1 OR other = ?1)"
-                + (item == null ? "" : " AND (item = ?2 OR instr(detail, ?3) > 0)")
-                + " ORDER BY seq DESC LIMIT ?4";
         val events = new ArrayList<Envelope>();
+        for (val row : touching(EventRow.encode(holder), item, Long.MIN_VALUE, limit)) {
+            events.add(row.toEnvelope());
+        }
+        return events;
+    }
+
+    @Override
+    public Trace trace(HolderId root, @Nullable ItemKey item, long since, int depth, int limit) throws SQLException {
+        val found = new TreeMap<Long, EventRow>();
+        val visited = new HashSet<String>();
+        var frontier = List.of(EventRow.encode(root));
+        visited.add(frontier.get(0));
+
+        for (var hop = 0; hop < depth && !frontier.isEmpty() && found.size() <= limit; hop++) {
+            val next = new ArrayList<String>();
+            for (val holder : frontier) {
+                for (val row : touching(holder, item, since, limit + 1)) {
+                    found.put(row.seq(), row);
+                    for (val neighbour : new String[] {row.holder(), row.other()}) {
+                        if (neighbour != null && visited.add(neighbour)) {
+                            next.add(neighbour);
+                        }
+                    }
+                }
+            }
+            frontier = next;
+        }
+
+        val truncated = found.size() > limit;
+        while (found.size() > limit) {
+            found.pollFirstEntry();
+        }
+        val events = new ArrayList<Envelope>(found.size());
+        for (val row : found.values()) {
+            events.add(row.toEnvelope());
+        }
+        return new Trace(events, truncated);
+    }
+
+    /**
+     * Newest-first rows where {@code holder} is either side, from {@code since} on, optionally touching {@code item}.
+     */
+    private List<EventRow> touching(String holder, @Nullable ItemKey item, long since, int limit) throws SQLException {
+        val sql = "SELECT " + EVENT_COLUMNS + " FROM event WHERE (holder = ?1 OR other = ?1) AND time >= ?2"
+                + (item == null ? "" : " AND (item = ?3 OR instr(detail, ?4) > 0)")
+                + " ORDER BY seq DESC LIMIT ?5";
+        val rows = new ArrayList<EventRow>();
 
         try (val query = connection.prepareStatement(sql)) {
-            query.setString(1, EventRow.encode(holder));
+            query.setString(1, holder);
+            query.setLong(2, since);
             if (item != null) {
-                query.setString(2, item.key());
-                query.setString(3, "|" + item.key() + "=");
+                query.setString(3, item.key());
+                query.setString(4, "|" + item.key() + "=");
             }
-            query.setInt(4, limit);
-            try (val rows = query.executeQuery()) {
-                while (rows.next()) {
-                    events.add(read(rows).toEnvelope());
+            query.setInt(5, limit);
+            try (val result = query.executeQuery()) {
+                while (result.next()) {
+                    rows.add(read(result));
                 }
             }
         }
-        return events;
+        return rows;
     }
 
     @Override

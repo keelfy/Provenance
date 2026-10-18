@@ -111,6 +111,11 @@ class SqliteStoreTest {
             }
 
             @Override
+            public Trace trace(HolderId root, ItemKey item, long since, int depth, int limit) {
+                return new Trace(List.of(), false);
+            }
+
+            @Override
             public void prune(long now) {}
 
             @Override
@@ -187,6 +192,56 @@ class SqliteStoreTest {
                     .isEqualTo(new LedgerEvent.Converted(bob, Map.of(DIAMOND, 3L, stick, 2L), Map.of(pickaxe, 1L)));
             assertThat(store.history(chest, null, 1).get(0).event())
                     .isEqualTo(new LedgerEvent.Transferred(bob, chest, DIAMOND, 2, TaintVector.EMPTY));
+        }
+    }
+
+    @Test
+    void traceFollowsHoldersUpToDepthLimitAndItem() throws Exception {
+        val carol = HolderId.player(UUID.randomUUID());
+        val dave = HolderId.player(UUID.randomUUID());
+        val stick = new ItemKey("minecraft:stick");
+        val clock = new AtomicLong(1000);
+        val ledger = new Ledger(clock::get);
+        ledger.mint(Cause.MINE, bob, DIAMOND, 10, bob.asPlayerOrigin()); // 1
+        ledger.mint(Cause.MINE, dave, DIAMOND, 1, dave.asPlayerOrigin()); // 2: unrelated to bob
+        ledger.transfer(CAUSE, bob, chest, DIAMOND, 6); // 3
+        ledger.transfer(CAUSE, chest, carol, DIAMOND, 4); // 4
+        ledger.transfer(CAUSE, carol, dave, DIAMOND, 1); // 5
+        ledger.mint(Cause.LOOT, chest, stick, 2, OriginId.LOOT); // 6
+
+        try (val store = new SqliteStore(dir.resolve("g.db"), RETENTION)) {
+            store.write(ledger.drainChanges());
+
+            // Hop 1: bob's own events; hop 2 adds the chest's; carol and dave stay out of reach.
+            assertThat(store.trace(bob, null, 0, 1, 100).events())
+                    .extracting(Envelope::seq)
+                    .containsExactly(1L, 3L);
+            assertThat(store.trace(bob, null, 0, 2, 100).events())
+                    .extracting(Envelope::seq)
+                    .containsExactly(1L, 3L, 4L, 6L);
+            assertThat(store.trace(bob, null, 0, 3, 100).events())
+                    .extracting(Envelope::seq)
+                    .containsExactly(1L, 3L, 4L, 5L, 6L);
+            assertThat(store.trace(bob, null, 0, 9, 100).events())
+                    .extracting(Envelope::seq)
+                    .containsExactly(1L, 2L, 3L, 4L, 5L, 6L);
+
+            // The item filter applies to every hop.
+            assertThat(store.trace(bob, DIAMOND, 0, 9, 100).events())
+                    .extracting(Envelope::seq)
+                    .containsExactly(1L, 2L, 3L, 4L, 5L);
+            assertThat(store.trace(chest, stick, 0, 9, 100).events())
+                    .extracting(Envelope::seq)
+                    .containsExactly(6L);
+
+            // Past the limit the newest events are kept and the cut is reported.
+            val cut = store.trace(bob, null, 0, 9, 4);
+            assertThat(cut.events()).extracting(Envelope::seq).containsExactly(3L, 4L, 5L, 6L);
+            assertThat(cut.truncated()).isTrue();
+            assertThat(store.trace(bob, null, 0, 9, 6).truncated()).isFalse();
+
+            // Nothing is returned from before the window.
+            assertThat(store.trace(bob, null, 1001, 9, 100).events()).isEmpty();
         }
     }
 

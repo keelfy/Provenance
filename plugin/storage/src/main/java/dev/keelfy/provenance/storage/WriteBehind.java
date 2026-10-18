@@ -61,6 +61,19 @@ public final class WriteBehind implements AutoCloseable {
         return result;
     }
 
+    /** Same threading as {@link #history}. */
+    public CompletableFuture<Trace> trace(HolderId root, @Nullable ItemKey item, long since, int depth, int limit) {
+        val result = new CompletableFuture<Trace>();
+        executor.execute(() -> {
+            try {
+                result.complete(store.trace(root, item, since, depth, limit));
+            } catch (Exception e) {
+                result.completeExceptionally(e);
+            }
+        });
+        return result;
+    }
+
     public void prune(long now) {
         executor.execute(() -> {
             try {
