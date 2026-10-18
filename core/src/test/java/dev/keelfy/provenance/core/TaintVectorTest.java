@@ -21,7 +21,8 @@ class TaintVectorTest {
 
     @Test
     void mixWithEmptyIsIdentity() {
-        assertThat(TaintVector.mix(TaintVector.EMPTY, 0, TaintVector.of(ALICE), 5)).isEqualTo(TaintVector.of(ALICE));
+        assertThat(TaintVector.mix(TaintVector.EMPTY, 0, TaintVector.of(ALICE), 5))
+                .isEqualTo(TaintVector.of(ALICE));
     }
 
     @Test
@@ -39,7 +40,8 @@ class TaintVectorTest {
 
     @Test
     void tinySharesFoldIntoOther() {
-        TaintVector vector = TaintVector.builder().add(ALICE, 1_000_000).add(BOB, 1).build();
+        TaintVector vector =
+                TaintVector.builder().add(ALICE, 1_000_000).add(BOB, 1).build();
 
         assertThat(vector.share(BOB)).isZero();
         assertThat(vector.share(OriginId.OTHER)).isGreaterThan(0);
@@ -47,6 +49,8 @@ class TaintVectorTest {
     }
 
     private static double sum(TaintVector vector) {
-        return vector.shares().values().stream().mapToDouble(Double::doubleValue).sum();
+        return vector.shares().values().stream()
+                .mapToDouble(Double::doubleValue)
+                .sum();
     }
 }

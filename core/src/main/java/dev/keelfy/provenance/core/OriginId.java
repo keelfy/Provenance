@@ -3,14 +3,12 @@ package dev.keelfy.provenance.core;
 import java.util.Objects;
 import java.util.UUID;
 
-import org.jetbrains.annotations.NotNull;
-
-/** 
- * Source an item share is attributed to: a player or an environment bucket. 
- * 
+/**
+ * Source an item share is attributed to: a player or an environment bucket.
+ *
  * @author keelfy
- * */
-public record OriginId(@NotNull String key) {
+ */
+public record OriginId(String key) {
 
     private static final String PLAYER_PREFIX = "p:";
 
@@ -27,7 +25,7 @@ public record OriginId(@NotNull String key) {
         Objects.requireNonNull(key, "key");
     }
 
-    public static OriginId player(@NotNull UUID uuid) {
+    public static OriginId player(UUID uuid) {
         return new OriginId(PLAYER_PREFIX + uuid);
     }
 
@@ -35,7 +33,7 @@ public record OriginId(@NotNull String key) {
         return key.startsWith(PLAYER_PREFIX);
     }
 
-    public @NotNull UUID playerId() {
+    public UUID playerId() {
         if (!isPlayer()) {
             throw new IllegalStateException("not a player origin: " + key);
         }

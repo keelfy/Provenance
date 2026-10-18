@@ -2,15 +2,12 @@ package dev.keelfy.provenance.core;
 
 import java.util.HashMap;
 import java.util.Map;
-
-import org.jetbrains.annotations.NotNull;
-
 import lombok.experimental.UtilityClass;
 import lombok.val;
 
 /**
- * Turns observed inventory counts into ledger operations. Callers reconcile holders before the interaction,
- * so any remaining delta afterwards is the interaction's effect.
+ * Turns observed inventory counts into ledger operations. Callers reconcile holders before the interaction, so any
+ * remaining delta afterwards is the interaction's effect.
  *
  * @author keelfy
  */
@@ -18,36 +15,40 @@ import lombok.val;
 public class Settlement {
 
     /**
-     * Player looking into a real container: opposite count changes of the same item are transfers,
-     * the rest is reconciled with {@code mintOrigin}.
+     * Player looking into a real container: opposite count changes of the same item are transfers, the rest is
+     * reconciled with {@code mintOrigin}.
      */
-    public void container(@NotNull Ledger ledger,
-                          @NotNull HolderId player, @NotNull Map<ItemKey, Long> playerActual,
-                          @NotNull HolderId container, @NotNull Map<ItemKey, Long> containerActual,
-                          @NotNull OriginId mintOrigin) {
+    public void container(
+            Ledger ledger,
+            Cause cause,
+            HolderId player,
+            Map<ItemKey, Long> playerActual,
+            HolderId container,
+            Map<ItemKey, Long> containerActual,
+            OriginId mintOrigin) {
         val playerDelta = ledger.delta(player, playerActual);
         val containerDelta = ledger.delta(container, containerActual);
 
         playerDelta.forEach((item, dp) -> {
             val dc = containerDelta.getOrDefault(item, 0L);
             if (dp < 0 && dc > 0) {
-                ledger.transfer(player, container, item, Math.min(-dp, dc));
+                ledger.transfer(cause, player, container, item, Math.min(-dp, dc));
             } else if (dp > 0 && dc < 0) {
-                ledger.transfer(container, player, item, Math.min(dp, -dc));
+                ledger.transfer(cause, container, player, item, Math.min(dp, -dc));
             }
         });
 
-        ledger.reconcile(player, playerActual, mintOrigin);
-        ledger.reconcile(container, containerActual, mintOrigin);
+        ledger.reconcile(cause, player, playerActual, mintOrigin);
+        ledger.reconcile(cause, container, containerActual, mintOrigin);
     }
 
     /**
-     * Player using a crafting grid or workstation, counted as part of the player: what disappeared is the input,
-     * what appeared is the output and inherits the inputs' origin. Items that appear with no input at all
-     * (creative menu, pickups while the player's own crafting view is open) are not crafted: they get {@code mintOrigin}.
+     * Player using a crafting grid or workstation, counted as part of the player: what disappeared is the input, what
+     * appeared is the output and inherits the inputs' origin. Items that appear with no input at all (creative menu,
+     * pickups while the player's own crafting view is open) are not crafted: they get {@code mintOrigin}.
      */
-    public void workstation(@NotNull Ledger ledger, @NotNull HolderId player, @NotNull Map<ItemKey, Long> playerActual,
-                            @NotNull OriginId mintOrigin) {
+    public void workstation(
+            Ledger ledger, Cause cause, HolderId player, Map<ItemKey, Long> playerActual, OriginId mintOrigin) {
         val inputs = new HashMap<ItemKey, Long>();
         val outputs = new HashMap<ItemKey, Long>();
 
@@ -60,11 +61,11 @@ public class Settlement {
         });
 
         if (outputs.isEmpty()) {
-            inputs.forEach((item, amount) -> ledger.burn(player, item, amount));
+            inputs.forEach((item, amount) -> ledger.burn(cause, player, item, amount));
         } else if (inputs.isEmpty()) {
-            outputs.forEach((item, amount) -> ledger.mint(player, item, amount, mintOrigin));
+            outputs.forEach((item, amount) -> ledger.mint(cause, player, item, amount, mintOrigin));
         } else {
-            ledger.convert(player, inputs, outputs);
+            ledger.convert(cause, player, inputs, outputs);
         }
     }
 }

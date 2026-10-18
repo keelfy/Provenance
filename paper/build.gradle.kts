@@ -1,5 +1,5 @@
 plugins {
-    id("xyz.jpenilla.run-paper") version "3.1.0"
+    id("xyz.jpenilla.run-paper")
 }
 
 repositories {

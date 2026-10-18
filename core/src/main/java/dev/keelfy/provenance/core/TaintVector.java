@@ -5,18 +5,16 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
-
-import org.jetbrains.annotations.NotNull;
-
+import lombok.AccessLevel;
 import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 import lombok.ToString;
 import lombok.val;
 
 /**
- * Immutable sparse distribution over origins; shares sum to 1 (or the vector is empty).
- * Bounded to {@link #MAX_ENTRIES}: the tail and shares below {@link #EPSILON} fold into {@link OriginId#OTHER}.
- * 
+ * Immutable sparse distribution over origins; shares sum to 1 (or the vector is empty). Bounded to
+ * {@link #MAX_ENTRIES}: the tail and shares below {@link #EPSILON} fold into {@link OriginId#OTHER}.
+ *
  * @author keelfy
  */
 @ToString
@@ -31,11 +29,11 @@ public final class TaintVector {
     @EqualsAndHashCode.Include
     private final Map<OriginId, Double> shares;
 
-    private TaintVector(@NotNull Map<OriginId, Double> shares) {
+    private TaintVector(Map<OriginId, Double> shares) {
         this.shares = shares;
     }
 
-    public static TaintVector of(@NotNull OriginId origin) {
+    public static TaintVector of(OriginId origin) {
         return new TaintVector(Map.of(origin, 1.0));
     }
 
@@ -62,12 +60,12 @@ public final class TaintVector {
     }
 
     /** Accumulates weighted vectors and normalizes on {@link #build()}. */
-    @NoArgsConstructor(access = lombok.AccessLevel.PRIVATE)
+    @NoArgsConstructor(access = AccessLevel.PRIVATE)
     public static final class Builder {
 
-        private final Map<@NotNull OriginId, @NotNull Double> mass = new HashMap<>();
+        private final Map<OriginId, Double> mass = new HashMap<>();
 
-        public Builder add(@NotNull TaintVector vector, double weight) {
+        public Builder add(TaintVector vector, double weight) {
             if (weight <= 0) {
                 return this;
             }
@@ -75,7 +73,7 @@ public final class TaintVector {
             return this;
         }
 
-        public Builder add(@NotNull OriginId origin, double weight) {
+        public Builder add(OriginId origin, double weight) {
             if (weight > 0) {
                 mass.merge(origin, weight, (d1, d2) -> d1 + d2);
             }

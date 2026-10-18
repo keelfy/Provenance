@@ -1,28 +1,26 @@
 package dev.keelfy.provenance.core;
 
-import org.jetbrains.annotations.NotNull;
-
 import lombok.Getter;
 
-/** 
- * Count of one item type inside one holder, with where it came from and who last deposited it. 
- * 
+/**
+ * Count of one item type inside one holder, with where it came from and who last deposited it.
+ *
  * @author keelfy
- * */
-@Getter 
+ */
+@Getter
 public final class Pool {
 
     private long count;
-    private @NotNull TaintVector origin;
-    private @NotNull TaintVector custody;
+    private TaintVector origin;
+    private TaintVector custody;
 
-    Pool(long count, @NotNull TaintVector origin, @NotNull TaintVector custody) {
+    Pool(long count, TaintVector origin, TaintVector custody) {
         this.count = count;
         this.origin = origin;
         this.custody = custody;
     }
 
-    void add(long amount, @NotNull TaintVector addedOrigin, @NotNull TaintVector addedCustody) {
+    void add(long amount, TaintVector addedOrigin, TaintVector addedCustody) {
         origin = TaintVector.mix(origin, count, addedOrigin, amount);
         custody = TaintVector.mix(custody, count, addedCustody, amount);
         count += amount;

@@ -6,27 +6,24 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-
-import org.jetbrains.annotations.NotNull;
-
 import lombok.RequiredArgsConstructor;
 import lombok.val;
 
-/** 
- * Read-side queries over a {@link Ledger}: wealth attribution {@code W[P][Q]}, similarity and links. 
- * 
+/**
+ * Read-side queries over a {@link Ledger}: wealth attribution {@code W[P][Q]}, similarity and links.
+ *
  * @author keelfy
- * */
-@RequiredArgsConstructor 
+ */
+@RequiredArgsConstructor
 public final class Correlation {
 
-    private final @NotNull Ledger ledger;
+    private final Ledger ledger;
 
     /**
-     * Expected item counts held by {@code player} (own inventory plus custody share of containers), by origin.
-     * Assumes custody and origin are independent within a pool.
+     * Expected item counts held by {@code player} (own inventory plus custody share of containers), by origin. Assumes
+     * custody and origin are independent within a pool.
      */
-    public Map<OriginId, Double> wealth(@NotNull OriginId player) {
+    public Map<OriginId, Double> wealth(OriginId player) {
         val result = new HashMap<OriginId, Double>();
         for (val holder : ledger.getHolders()) {
             for (Pool pool : ledger.getPools(holder).values()) {
@@ -34,14 +31,16 @@ public final class Correlation {
                 if (held <= 0) {
                     continue;
                 }
-                pool.getOrigin().shares().forEach((origin, share) -> result.merge(origin, held * share, (a, b) -> a + b));
+                pool.getOrigin()
+                        .shares()
+                        .forEach((origin, share) -> result.merge(origin, held * share, (a, b) -> a + b));
             }
         }
         return result;
     }
 
     /** Cosine similarity of two players' wealth over player origins only (environment buckets are noise). */
-    public double similarity(@NotNull OriginId a, @NotNull OriginId b) {
+    public double similarity(OriginId a, OriginId b) {
         val wa = playerOnly(wealth(a));
         val wb = playerOnly(wealth(b));
         double dot = 0;
@@ -55,8 +54,9 @@ public final class Correlation {
     }
 
     /** Players connected to {@code player} by flows or shared wealth, strongest flow first. */
-    public @NotNull List<Link> links(@NotNull OriginId player) {
-        val sourceEdges = ledger.getFlows().getEdges().getOrDefault(player, Map.of()).keySet();
+    public List<Link> links(OriginId player) {
+        val sourceEdges =
+                ledger.getFlows().getEdges().getOrDefault(player, Map.of()).keySet();
         val candidates = new HashSet<OriginId>(sourceEdges);
 
         ledger.getFlows().getEdges().forEach((from, targets) -> {
@@ -75,7 +75,9 @@ public final class Correlation {
             val otherToPlayer = ledger.getFlows().flow(other, player);
             links.add(new Link(other, playerToOther, otherToPlayer, similarity(player, other)));
         }
-        links.sort(Comparator.comparingDouble(Link::volume).thenComparingDouble(Link::similarity).reversed());
+        links.sort(Comparator.comparingDouble(Link::volume)
+                .thenComparingDouble(Link::similarity)
+                .reversed());
         return links;
     }
 

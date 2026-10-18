@@ -1,8 +1,20 @@
 package dev.keelfy.provenance.paper.listener;
 
+import com.google.inject.Inject;
+import com.google.inject.Singleton;
+import dev.keelfy.provenance.Settings;
+import dev.keelfy.provenance.core.Cause;
+import dev.keelfy.provenance.core.ItemKey;
+import dev.keelfy.provenance.core.Ledger;
+import dev.keelfy.provenance.core.OriginId;
+import dev.keelfy.provenance.paper.Holders;
+import dev.keelfy.provenance.paper.ItemKeys;
+import dev.keelfy.provenance.paper.SpawnSource;
+import dev.keelfy.provenance.paper.world.SpawnContexts;
 import java.util.HashMap;
 import java.util.Map;
-
+import lombok.RequiredArgsConstructor;
+import lombok.val;
 import org.bukkit.block.Crafter;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -13,42 +25,27 @@ import org.bukkit.event.inventory.BrewEvent;
 import org.bukkit.event.inventory.FurnaceSmeltEvent;
 import org.bukkit.event.inventory.InventoryMoveItemEvent;
 import org.bukkit.event.inventory.InventoryPickupItemEvent;
-import org.jetbrains.annotations.NotNull;
-
-import com.google.inject.Singleton;
-import com.google.inject.Inject;
-
-import dev.keelfy.provenance.core.ItemKey;
-import dev.keelfy.provenance.core.Ledger;
-import dev.keelfy.provenance.core.OriginId;
-import dev.keelfy.provenance.paper.Holders;
-import dev.keelfy.provenance.paper.ItemKeys;
-import dev.keelfy.provenance.paper.SpawnSource;
-import dev.keelfy.provenance.paper.world.SpawnContexts;
-import lombok.RequiredArgsConstructor;
-import lombok.val;
 
 /**
- * Item movement and conversion without a player in the loop: hoppers, droppers, hopper minecarts,
- * furnaces, brewing stands, campfires and crafters.
+ * Item movement and conversion without a player in the loop: hoppers, droppers, hopper minecarts, furnaces, brewing
+ * stands, campfires and crafters.
  *
  * @author keelfy
  */
-@Singleton 
+@Singleton
 @RequiredArgsConstructor(onConstructor = @__(@Inject))
 public final class AutomationListener implements Listener {
 
-    private static final double EJECT_RADIUS = 1.0;
-
-    private final @NotNull Ledger ledger;
-    private final @NotNull SpawnContexts contexts;
+    private final Settings settings;
+    private final Ledger ledger;
+    private final SpawnContexts contexts;
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onMove(InventoryMoveItemEvent event) {
         val from = Holders.of(event.getSource());
         val to = Holders.of(event.getDestination());
         if (from != null && to != null) {
-            ledger.transfer(from, to, ItemKeys.count(event.getItem()));
+            ledger.transfer(Cause.HOPPER, from, to, ItemKeys.count(event.getItem()));
         }
     }
 
@@ -57,7 +54,7 @@ public final class AutomationListener implements Listener {
         val to = Holders.of(event.getInventory());
         val item = event.getItem();
         if (to != null) {
-            ledger.transfer(Holders.of(item), to, ItemKeys.count(item.getItemStack()));
+            ledger.transfer(Cause.HOPPER, Holders.of(item), to, ItemKeys.count(item.getItemStack()));
         }
     }
 
@@ -66,12 +63,14 @@ public final class AutomationListener implements Listener {
         val input = ItemKeys.of(event.getSource());
         val output = ItemKeys.of(event.getResult());
         if (input != null && output != null) {
-            ledger.convert(Holders.of(event.getBlock()), Map.of(input, 1L),
-                    Map.of(output, (long) event.getResult().getAmount()));
+            ledger.convert(Cause.SMELT, Holders.of(event.getBlock()), Map.of(input, 1L), Map.of(output, (long)
+                    event.getResult().getAmount()));
         }
     }
 
-    /** Each brewed bottle becomes its result and takes on the ingredient's origin; untouched bottles stay as they are. */
+    /**
+     * Each brewed bottle becomes its result and takes on the ingredient's origin; untouched bottles stay as they are.
+     */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onBrew(BrewEvent event) {
         val contents = event.getContents();
@@ -91,7 +90,7 @@ public final class AutomationListener implements Listener {
         if (ingredient != null && !outputs.isEmpty()) {
             inputs.merge(ingredient, 1L, Long::sum);
         }
-        ledger.convert(Holders.of(event.getBlock()), inputs, outputs);
+        ledger.convert(Cause.CRAFT, Holders.of(event.getBlock()), inputs, outputs);
     }
 
     /** A campfire drops what it has cooked; the dropped item carries the pool of the campfire. */
@@ -105,8 +104,13 @@ public final class AutomationListener implements Listener {
 
         val block = event.getBlock();
         val holder = Holders.of(block);
-        ledger.convert(holder, Map.of(input, 1L), Map.of(output, (long) event.getResult().getAmount()));
-        contexts.add(block.getLocation().toCenterLocation(), EJECT_RADIUS, new SpawnSource(holder, OriginId.UNKNOWN), output);
+        ledger.convert(Cause.SMELT, holder, Map.of(input, 1L), Map.of(output, (long)
+                event.getResult().getAmount()));
+        contexts.add(
+                block.getLocation().toCenterLocation(),
+                settings.ejectRadius(),
+                new SpawnSource(holder, OriginId.UNKNOWN, Cause.SMELT),
+                output);
     }
 
     /** One of each filled slot goes into the result; the crafter then ejects it as a dispense. */
@@ -124,6 +128,6 @@ public final class AutomationListener implements Listener {
                 inputs.merge(key, 1L, Long::sum);
             }
         }
-        ledger.convert(Holders.of(block), inputs, ItemKeys.count(event.getResult()));
+        ledger.convert(Cause.CRAFT, Holders.of(block), inputs, ItemKeys.count(event.getResult()));
     }
 }

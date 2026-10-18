@@ -1,8 +1,24 @@
 package dev.keelfy.provenance.paper.listener;
 
+import com.google.inject.Inject;
+import com.google.inject.Singleton;
+import dev.keelfy.provenance.Settings;
+import dev.keelfy.provenance.core.Cause;
+import dev.keelfy.provenance.core.HolderId;
+import dev.keelfy.provenance.core.Ledger;
+import dev.keelfy.provenance.core.OriginId;
+import dev.keelfy.provenance.paper.Holders;
+import dev.keelfy.provenance.paper.ItemKeys;
+import dev.keelfy.provenance.paper.Players;
+import dev.keelfy.provenance.paper.SpawnSource;
+import dev.keelfy.provenance.paper.ViewTarget;
+import dev.keelfy.provenance.paper.inventory.InventoryReconciler;
+import dev.keelfy.provenance.paper.world.SpawnContexts;
+import io.papermc.paper.block.TileStateInventoryHolder;
 import java.util.ArrayList;
 import java.util.List;
-
+import lombok.RequiredArgsConstructor;
+import lombok.val;
 import org.bukkit.Location;
 import org.bukkit.block.Block;
 import org.bukkit.block.Container;
@@ -24,44 +40,23 @@ import org.bukkit.event.player.PlayerFishEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.world.LootGenerateEvent;
 import org.bukkit.plugin.Plugin;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
-
-import com.google.inject.Singleton;
-import com.google.inject.Inject;
-
-import dev.keelfy.provenance.core.HolderId;
-import dev.keelfy.provenance.core.Ledger;
-import dev.keelfy.provenance.core.OriginId;
-import dev.keelfy.provenance.paper.Holders;
-import dev.keelfy.provenance.paper.ItemKeys;
-import dev.keelfy.provenance.paper.Players;
-import dev.keelfy.provenance.paper.SpawnSource;
-import dev.keelfy.provenance.paper.ViewTarget;
-import dev.keelfy.provenance.paper.inventory.InventoryReconciler;
-import dev.keelfy.provenance.paper.world.SpawnContexts;
-import io.papermc.paper.block.TileStateInventoryHolder;
-import lombok.RequiredArgsConstructor;
-import lombok.val;
+import org.jspecify.annotations.Nullable;
 
 /**
- * Where items enter the world (mining, kills, loot, fishing, dispensers) and how container blocks keep their pools
- * when they are broken, blown up or joined into a double chest.
+ * Where items enter the world (mining, kills, loot, fishing, dispensers) and how container blocks keep their pools when
+ * they are broken, blown up or joined into a double chest.
  *
  * @author keelfy
  */
-@Singleton 
+@Singleton
 @RequiredArgsConstructor(onConstructor = @__(@Inject))
 public final class WorldListener implements Listener {
 
-    private static final double BLOCK_RADIUS = 2.0;
-    private static final double DISPENSE_RADIUS = 1.0;
-    private static final double PLAYER_DEATH_RADIUS = 3.0;
-
-    private final @NotNull Plugin plugin;
-    private final @NotNull Ledger ledger;
-    private final @NotNull SpawnContexts contexts;
-    private final @NotNull InventoryReconciler reconciler;
+    private final Settings settings;
+    private final Plugin plugin;
+    private final Ledger ledger;
+    private final SpawnContexts contexts;
+    private final InventoryReconciler reconciler;
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onBreak(BlockBreakEvent event) {
@@ -81,7 +76,7 @@ public final class WorldListener implements Listener {
     /** Mined drops belong to the miner; container contents spilled by the same break keep their history. */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onBlockDrop(BlockDropItemEvent event) {
-        val fallback = new SpawnSource(null, Players.origin(event.getPlayer()));
+        val fallback = new SpawnSource(null, Players.origin(event.getPlayer()), Cause.MINE);
         for (val item : event.getItems()) {
             val source = contexts.find(item.getLocation(), ItemKeys.of(item.getItemStack()));
             spawn(item, source != null ? source : fallback);
@@ -95,15 +90,15 @@ public final class WorldListener implements Listener {
         if (key == null) {
             return;
         }
-        
+
         val block = event.getBlock();
-        val spawnSource = new SpawnSource(Holders.of(block), OriginId.UNKNOWN);
-        contexts.add(block.getLocation().toCenterLocation(), DISPENSE_RADIUS, spawnSource, key);
+        val spawnSource = new SpawnSource(Holders.of(block), OriginId.UNKNOWN, Cause.DROP);
+        contexts.add(block.getLocation().toCenterLocation(), settings.dispenseRadius(), spawnSource, key);
     }
 
     /**
-     * Jukeboxes, chiseled bookshelves, decorated pots, lecterns and campfires swap items by clicking the block, with no view to observe:
-     * the click is settled like a container, and whatever the block pops out carries its pool.
+     * Jukeboxes, chiseled bookshelves, decorated pots, lecterns and campfires swap items by clicking the block, with no
+     * view to observe: the click is settled like a container, and whatever the block pops out carries its pool.
      */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onInteract(PlayerInteractEvent event) {
@@ -117,9 +112,9 @@ public final class WorldListener implements Listener {
             return;
         }
 
-        val source = new SpawnSource(holder, OriginId.UNKNOWN);
+        val source = new SpawnSource(holder, OriginId.UNKNOWN, Cause.CONTAINER);
         for (val item : ItemKeys.count(state).keySet()) {
-            contexts.add(block.getLocation().toCenterLocation(), BLOCK_RADIUS, source, item);
+            contexts.add(block.getLocation().toCenterLocation(), settings.blockRadius(), source, item);
         }
         reconciler.track(event.getPlayer(), ViewTarget.container(holder, () -> ItemKeys.count(block.getState(false))));
     }
@@ -128,7 +123,11 @@ public final class WorldListener implements Listener {
     public void onPlace(BlockPlaceEvent event) {
         val block = event.getBlock();
         // A placed shulker box keeps what it carried: that moves from the player to the block.
-        ledger.transfer(Holders.of(event.getPlayer()), Holders.of(block), ItemKeys.inside(event.getItemInHand()));
+        ledger.transfer(
+                Cause.CONTAINER,
+                Holders.of(event.getPlayer()),
+                Holders.of(block),
+                ItemKeys.inside(event.getItemInHand()));
 
         if (!(block.getState(false) instanceof Container)) {
             return;
@@ -142,7 +141,7 @@ public final class WorldListener implements Listener {
             for (val half : halves(container)) {
                 val id = Holders.of(half);
                 if (canonical != null && !id.equals(canonical)) {
-                    ledger.transferAll(id, canonical);
+                    ledger.transferAll(Cause.CONTAINER, id, canonical);
                 }
             }
         });
@@ -153,7 +152,10 @@ public final class WorldListener implements Listener {
         val entity = event.getEntity();
         if (entity instanceof Player player) {
             reconciler.reconcile(player);
-            contexts.add(player.getLocation(), PLAYER_DEATH_RADIUS, new SpawnSource(Holders.of(player), OriginId.UNKNOWN));
+            contexts.add(
+                    player.getLocation(),
+                    settings.deathRadius(),
+                    new SpawnSource(Holders.of(player), OriginId.UNKNOWN, Cause.KILL));
             return;
         }
 
@@ -161,12 +163,13 @@ public final class WorldListener implements Listener {
         val origin = killer != null ? Players.origin(killer) : OriginId.MOB;
         val holder = Holders.of(entity);
         val from = ledger.getPools(holder).isEmpty() ? null : holder;
-        contexts.add(entity.getLocation(), BLOCK_RADIUS, new SpawnSource(from, origin));
+        contexts.add(entity.getLocation(), settings.blockRadius(), new SpawnSource(from, origin, Cause.KILL));
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onItemSpawn(ItemSpawnEvent event) {
-        val source = contexts.find(event.getLocation(), ItemKeys.of(event.getEntity().getItemStack()));
+        val source =
+                contexts.find(event.getLocation(), ItemKeys.of(event.getEntity().getItemStack()));
         if (source != null) {
             spawn(event.getEntity(), source);
         }
@@ -181,7 +184,7 @@ public final class WorldListener implements Listener {
         for (val stack : event.getLoot()) {
             val key = ItemKeys.of(stack);
             if (key != null) {
-                ledger.mint(holder, key, stack.getAmount(), OriginId.LOOT);
+                ledger.mint(Cause.LOOT, holder, key, stack.getAmount(), OriginId.LOOT);
             }
         }
     }
@@ -189,12 +192,12 @@ public final class WorldListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onFish(PlayerFishEvent event) {
         if (event.getState() == PlayerFishEvent.State.CAUGHT_FISH && event.getCaught() instanceof Item item) {
-            spawn(item, new SpawnSource(null, Players.origin(event.getPlayer())));
+            spawn(item, new SpawnSource(null, Players.origin(event.getPlayer()), Cause.LOOT));
         }
     }
 
     /** Attributes an item entity once; later hints for the same entity are ignored. */
-    private void spawn(@NotNull Item item, @NotNull SpawnSource source) {
+    private void spawn(Item item, SpawnSource source) {
         val holder = Holders.of(item);
         if (!ledger.getPools(holder).isEmpty()) {
             return;
@@ -202,38 +205,41 @@ public final class WorldListener implements Listener {
         ItemKeys.count(item.getItemStack()).forEach((key, amount) -> source.apply(ledger, holder, key, amount));
     }
 
-    private void containerDestroyed(@NotNull Block block, @NotNull OriginId fallback) {
+    private void containerDestroyed(Block block, OriginId fallback) {
         val state = block.getState(false);
         val holder = Holders.tile(state);
         if (holder == null) {
             return;
         }
         // Untracked contents spill as UNKNOWN, not as the breaker's production; the fallback covers the block itself.
-        ledger.reconcile(holder, ItemKeys.count(state));
+        ledger.reconcile(Cause.RECONCILE, holder, ItemKeys.count(state));
         val halves = state instanceof TileStateInventoryHolder tile ? halves(tile) : List.of(block.getLocation());
-        contexts.add(block.getLocation().toCenterLocation(), BLOCK_RADIUS, new SpawnSource(holder, fallback));
+        contexts.add(
+                block.getLocation().toCenterLocation(),
+                settings.blockRadius(),
+                new SpawnSource(holder, fallback, Cause.MINE));
 
         // After the spill: what is left belongs to the surviving half of a double chest, if any.
         plugin.getServer().getScheduler().runTask(plugin, () -> settleRemains(holder, halves));
     }
 
-    private void settleRemains(@NotNull HolderId holder, @NotNull List<Location> halves) {
+    private void settleRemains(HolderId holder, List<Location> halves) {
         for (val half : halves) {
             if (half.getBlock().getState(false) instanceof Container survivor) {
                 val id = Holders.of(survivor.getInventory());
                 if (id != null) {
                     if (!id.equals(holder)) {
-                        ledger.transferAll(holder, id);
+                        ledger.transferAll(Cause.CONTAINER, holder, id);
                     }
-                    ledger.reconcile(id, ItemKeys.count(survivor.getInventory()));
+                    ledger.reconcile(Cause.RECONCILE, id, ItemKeys.count(survivor.getInventory()));
                     return;
                 }
             }
         }
-        ledger.clear(holder);
+        ledger.clear(Cause.CONTAINER, holder);
     }
 
-    private static @NotNull List<Location> halves(@NotNull TileStateInventoryHolder container) {
+    private static List<Location> halves(TileStateInventoryHolder container) {
         val result = new ArrayList<Location>();
         if (container.getInventory().getHolder(false) instanceof DoubleChest chest) {
             addLocation(result, chest.getLeftSide(false));
@@ -244,7 +250,7 @@ public final class WorldListener implements Listener {
         return result;
     }
 
-    private static void addLocation(@NotNull List<Location> result, @Nullable Object side) {
+    private static void addLocation(List<Location> result, @Nullable Object side) {
         if (side instanceof Container half) {
             result.add(half.getLocation());
         }

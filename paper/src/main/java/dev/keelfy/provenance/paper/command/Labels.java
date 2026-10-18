@@ -1,15 +1,13 @@
 package dev.keelfy.provenance.paper.command;
 
-import java.util.Map;
-import java.util.stream.Collectors;
-
-import org.bukkit.Bukkit;
-import org.jetbrains.annotations.NotNull;
-
+import dev.keelfy.provenance.core.HolderId;
 import dev.keelfy.provenance.core.OriginId;
 import dev.keelfy.provenance.core.TaintVector;
+import java.util.Map;
+import java.util.stream.Collectors;
 import lombok.experimental.UtilityClass;
 import lombok.val;
+import org.bukkit.Bukkit;
 
 /**
  * Human-readable names for origins and vectors in command output.
@@ -20,9 +18,8 @@ import lombok.val;
 public class Labels {
 
     private static final String ENV_PREFIX = "env:";
-    private static final int TOP = 6;
 
-    public @NotNull String of(@NotNull OriginId origin) {
+    public String of(OriginId origin) {
         if (origin.isPlayer()) {
             val uuid = origin.playerId();
             val name = Bukkit.getOfflinePlayer(uuid).getName();
@@ -32,21 +29,29 @@ public class Labels {
         return key.startsWith(ENV_PREFIX) ? key.substring(ENV_PREFIX.length()) : key;
     }
 
-    /** {@code Alice 62%, unknown 30%, …} for the strongest shares. */
-    public @NotNull String of(@NotNull TaintVector vector) {
-        return top(vector.shares(), 1.0);
+    public String of(HolderId holder) {
+        return switch (holder.kind()) {
+            case PLAYER -> of(holder.asPlayerOrigin());
+            case BLOCK -> holder.id().replace(':', ' ');
+            case ENTITY -> "entity " + holder.id().substring(0, 8);
+        };
+    }
+
+    /** {@code Alice 62%, unknown 30%, …} for the {@code top} strongest shares. */
+    public String of(TaintVector vector, int top) {
+        return top(vector.shares(), 1.0, top);
     }
 
     /** Same, for absolute amounts: shares are relative to the sum. */
-    public @NotNull String ofAmounts(@NotNull Map<OriginId, Double> amounts) {
+    public String ofAmounts(Map<OriginId, Double> amounts, int top) {
         val total = amounts.values().stream().mapToDouble(d -> d).sum();
-        return total > 0 ? top(amounts, total) : "-";
+        return total > 0 ? top(amounts, total, top) : "-";
     }
 
-    private String top(Map<OriginId, Double> values, double total) {
+    private String top(Map<OriginId, Double> values, double total, int limit) {
         return values.entrySet().stream()
                 .sorted(Map.Entry.<OriginId, Double>comparingByValue().reversed())
-                .limit(TOP)
+                .limit(limit)
                 .map(e -> of(e.getKey()) + " " + Math.round(e.getValue() / total * 100) + "%")
                 .collect(Collectors.joining(", "));
     }

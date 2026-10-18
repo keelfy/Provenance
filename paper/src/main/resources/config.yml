@@ -1,0 +1,37 @@
+journal:
+  # Journal back-to-back hopper moves of one item between the same two blocks as a single event.
+  # Cuts the size of the history; the only cost is that /prov history shows one line instead of many.
+  merge-automation: true
+  # Days to keep events that involve a player or create items.
+  retention-days: 30
+  # Days to keep pure automation (block to block); it dominates volume and matters little for moderation.
+  automation-retention-days: 3
+
+storage:
+  # How often changed holders are snapshotted and handed to the writer thread.
+  flush-interval-seconds: 30
+  # How often journal entries past their retention are dropped.
+  prune-interval-hours: 24
+  # How long shutdown waits for queued writes.
+  shutdown-timeout-seconds: 30
+
+# Safety net for item changes no listener models (placing, eating, tool breaks, other plugins).
+reconcile-interval-seconds: 5
+
+# How far, in blocks, from an event an item entity still counts as coming from it.
+attribution:
+  block-radius: 2.0
+  dispense-radius: 1.0
+  eject-radius: 1.0
+  death-radius: 3.0
+  spill-radius: 1.5
+
+commands:
+  # How far, in blocks, /prov looks for a container.
+  block-reach: 6
+  history-rows: 20
+  block-rows: 10
+  player-rows: 10
+  link-rows: 10
+  # Origins listed in a "share" line.
+  top-origins: 6

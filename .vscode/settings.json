@@ -1,0 +1,16 @@
+{
+  "java.compile.nullAnalysis.mode": "automatic",
+  "java.settings.url": "./.vscode/org.eclipse.jdt.core.prefs",
+  "java.compile.nullAnalysis.nonnull": [
+    "org.jspecify.annotations.NonNull",
+    "org.jetbrains.annotations.NotNull"
+  ],
+  "java.compile.nullAnalysis.nullable": [
+    "org.jspecify.annotations.Nullable",
+    "org.jetbrains.annotations.Nullable"
+  ],
+  "java.compile.nullAnalysis.nonnullbydefault": [
+    "org.jspecify.annotations.NullMarked"
+  ],
+  "java.configuration.updateBuildConfiguration": "automatic"
+}

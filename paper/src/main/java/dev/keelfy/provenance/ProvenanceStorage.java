@@ -1,41 +1,44 @@
 package dev.keelfy.provenance;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.sql.SQLException;
-import java.util.logging.Logger;
-
-import org.bukkit.Server;
-
+import dev.keelfy.provenance.core.Envelope;
+import dev.keelfy.provenance.core.HolderId;
+import dev.keelfy.provenance.core.ItemKey;
 import dev.keelfy.provenance.core.Ledger;
 import dev.keelfy.provenance.storage.SqliteStore;
 import dev.keelfy.provenance.storage.WriteBehind;
-import lombok.NonNull;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.sql.SQLException;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.logging.Logger;
 import lombok.RequiredArgsConstructor;
 import lombok.val;
+import org.bukkit.Server;
+import org.jspecify.annotations.Nullable;
 
-/**
- * @author keelfy
- */
-@RequiredArgsConstructor 
+/** @author keelfy */
+@RequiredArgsConstructor
 public class ProvenanceStorage {
 
-    /** How often changed holders are snapshotted and handed to the writer thread. */
-    private static final long FLUSH_PERIOD_TICKS = 600;
+    /** Pruning waits a second after startup so it does not compete with the load. */
+    private static final long PRUNE_DELAY_TICKS = 20;
 
-    private final @NonNull ProvenancePlugin plugin;
-    private final @NonNull Logger logger;
-    private final @NonNull Server server;
-    private final @NonNull Ledger ledger;
+    private final ProvenancePlugin plugin;
+    private final Logger logger;
+    private final Server server;
+    private final Ledger ledger;
+    private final Settings settings;
 
     private WriteBehind writer;
 
     boolean open() {
         try {
             Files.createDirectories(plugin.getDataFolder().toPath());
-            val store = new SqliteStore(plugin.getDataFolder().toPath().resolve("provenance.db"));
+            val store = new SqliteStore(plugin.getDataFolder().toPath().resolve("provenance.db"), settings.retention());
             store.load(ledger);
-            writer = new WriteBehind(store, e -> logger.severe("Storage write failed, will retry: " + e));
+            writer = new WriteBehind(
+                    store, e -> logger.severe("Storage write failed, will retry: " + e), settings.shutdownTimeout());
             logger.info("Loaded " + ledger.getHolders().size() + " holders");
             return true;
         } catch (SQLException | IOException e) {
@@ -45,7 +48,22 @@ public class ProvenanceStorage {
     }
 
     void runScheduler() {
-        server.getScheduler().runTaskTimer(plugin, this::flush, FLUSH_PERIOD_TICKS, FLUSH_PERIOD_TICKS);
+        server.getScheduler().runTaskTimer(plugin, this::flush, settings.flushTicks(), settings.flushTicks());
+        server.getScheduler()
+                .runTaskTimer(
+                        plugin,
+                        () -> writer.prune(System.currentTimeMillis()),
+                        PRUNE_DELAY_TICKS,
+                        settings.pruneTicks());
+    }
+
+    /**
+     * Newest-first journal of {@code holder}; completes on the writer thread after everything recorded so far is
+     * stored.
+     */
+    public CompletableFuture<List<Envelope>> history(HolderId holder, @Nullable ItemKey item, int limit) {
+        flush();
+        return writer.history(holder, item, limit);
     }
 
     void flush() {
@@ -53,12 +71,8 @@ public class ProvenanceStorage {
     }
 
     void close() {
-        if (writer == null) {
-            return;
-        }
-
         flush();
-        
+
         try {
             writer.close();
         } catch (Exception e) {

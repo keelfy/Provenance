@@ -1,7 +1,9 @@
-// JDBC без драйвера: на сервере sqlite-jdbc уже поставляет Paper, в тестах подключаем сами.
+plugins {
+    id("com.diffplug.spotless")
+}
+
 dependencies {
     implementation(project(":core"))
-    compileOnly("org.jetbrains:annotations:26.0.2-1")
     testRuntimeOnly("org.xerial:sqlite-jdbc:3.50.3.0")
 }
 

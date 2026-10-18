@@ -6,29 +6,26 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-
-import org.jetbrains.annotations.NotNull;
-
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.val;
 
-/** 
+/**
  * Expected item counts moved from one player custodian to another: {@code F[from][to][item]}.
- * 
+ *
  * @author keelfy
- * */
-@Getter 
+ */
+@Getter
 public final class FlowGraph {
 
-    private final @NotNull Map<OriginId, Map<OriginId, Map<ItemKey, Double>>> edges = new HashMap<>();
+    private final Map<OriginId, Map<OriginId, Map<ItemKey, Double>>> edges = new HashMap<>();
+
     @Getter(AccessLevel.NONE)
-    private final @NotNull Set<Edge> dirty = new HashSet<>();
+    private final Set<Edge> dirty = new HashSet<>();
 
-    private record Edge(OriginId from, OriginId to, ItemKey item) {
-    }
+    private record Edge(OriginId from, OriginId to, ItemKey item) {}
 
-    void record(@NotNull OriginId from, @NotNull OriginId to, @NotNull ItemKey item, double amount) {
+    void record(OriginId from, OriginId to, ItemKey item, double amount) {
         if (amount <= 0 || from.equals(to)) {
             return;
         }
@@ -39,34 +36,30 @@ public final class FlowGraph {
     }
 
     /** Loads a persisted total without marking it dirty. */
-    void restore(@NotNull OriginId from, @NotNull OriginId to, @NotNull ItemKey item, double amount) {
+    void restore(OriginId from, OriginId to, ItemKey item, double amount) {
         edges.computeIfAbsent(from, k -> new HashMap<>())
                 .computeIfAbsent(to, k -> new HashMap<>())
                 .put(item, amount);
     }
 
     /** Current totals of edges changed since the last drain. */
-    @NotNull List<LedgerChanges.FlowRow> drainDirty() {
+    List<LedgerChanges.FlowRow> drainDirty() {
         val rows = new ArrayList<LedgerChanges.FlowRow>(dirty.size());
         for (val edge : dirty) {
-            rows.add(new LedgerChanges.FlowRow(edge.from(), edge.to(), edge.item(), flow(edge.from(), edge.to(), edge.item())));
+            rows.add(new LedgerChanges.FlowRow(
+                    edge.from(), edge.to(), edge.item(), flow(edge.from(), edge.to(), edge.item())));
         }
         dirty.clear();
         return rows;
     }
 
-    public double flow(@NotNull OriginId from, @NotNull OriginId to, @NotNull ItemKey item) {
-        return edges.getOrDefault(from, Map.of())
-                .getOrDefault(to, Map.of())
-                .getOrDefault(item, 0.0);
+    public double flow(OriginId from, OriginId to, ItemKey item) {
+        return edges.getOrDefault(from, Map.of()).getOrDefault(to, Map.of()).getOrDefault(item, 0.0);
     }
 
     /** Flow summed over all item types. */
-    public double flow(@NotNull OriginId from, @NotNull OriginId to) {
-        return edges.getOrDefault(from, Map.of())
-                .getOrDefault(to, Map.of())
-                .values()
-                .stream()
+    public double flow(OriginId from, OriginId to) {
+        return edges.getOrDefault(from, Map.of()).getOrDefault(to, Map.of()).values().stream()
                 .mapToDouble(d -> d)
                 .sum();
     }

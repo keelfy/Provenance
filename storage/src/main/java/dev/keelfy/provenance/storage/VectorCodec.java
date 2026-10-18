@@ -1,30 +1,28 @@
 package dev.keelfy.provenance.storage;
 
-import java.util.Locale;
-import java.util.stream.Collectors;
-
-import org.jetbrains.annotations.NotNull;
-
 import dev.keelfy.provenance.core.OriginId;
 import dev.keelfy.provenance.core.TaintVector;
+import java.util.Locale;
+import java.util.stream.Collectors;
 import lombok.experimental.UtilityClass;
 import lombok.val;
 
 /**
- * Text form of a {@link TaintVector}: {@code origin=share;origin=share}. Origin keys never contain {@code ;} or {@code =}.
+ * Text form of a {@link TaintVector}: {@code origin=share;origin=share}. Origin keys never contain {@code ;} or
+ * {@code =}.
  *
  * @author keelfy
  */
 @UtilityClass
 public class VectorCodec {
 
-    public @NotNull String encode(@NotNull TaintVector vector) {
+    public String encode(TaintVector vector) {
         return vector.shares().entrySet().stream()
                 .map(e -> e.getKey().key() + "=" + String.format(Locale.ROOT, "%.6f", e.getValue()))
                 .collect(Collectors.joining(";"));
     }
 
-    public @NotNull TaintVector decode(@NotNull String text) {
+    public TaintVector decode(String text) {
         val builder = TaintVector.builder();
         if (!text.isEmpty()) {
             for (val part : text.split(";")) {

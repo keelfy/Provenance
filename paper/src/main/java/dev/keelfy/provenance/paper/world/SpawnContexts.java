@@ -1,17 +1,14 @@
 package dev.keelfy.provenance.paper.world;
 
+import dev.keelfy.provenance.core.ItemKey;
+import dev.keelfy.provenance.paper.SpawnSource;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-
+import lombok.val;
 import org.bukkit.Location;
 import org.bukkit.plugin.Plugin;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
-
-import dev.keelfy.provenance.core.ItemKey;
-import dev.keelfy.provenance.paper.SpawnSource;
-import lombok.val;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Short-lived spatial hints attributing item entities spawned this tick (death drops, container spills).
@@ -20,34 +17,48 @@ import lombok.val;
  */
 public final class SpawnContexts {
 
-    private final @NotNull Plugin plugin;
-    private final @NotNull List<Entry> entries;
+    private final Plugin plugin;
+    private final List<Entry> entries;
 
-    public SpawnContexts(@NotNull Plugin plugin) {
+    public SpawnContexts(Plugin plugin) {
         this.plugin = plugin;
         this.entries = new ArrayList<>();
     }
 
-    private record Entry(UUID world, double x, double y, double z, double radiusSquared, SpawnSource source,
-                         @Nullable ItemKey item) {
-    }
+    private record Entry(
+            UUID world,
+            double x,
+            double y,
+            double z,
+            double radiusSquared,
+            SpawnSource source,
+            @Nullable ItemKey item) {}
 
     /** Registers a hint valid until the end of the current tick. */
-    public void add(@NotNull Location location, double radius, @NotNull SpawnSource source) {
+    public void add(Location location, double radius, SpawnSource source) {
         add(location, radius, source, null);
     }
 
-    /** Like {@link #add(Location, double, SpawnSource)} but for one entity of {@code item}: it is used up by the first match. */
-    public void add(@NotNull Location location, double radius, @NotNull SpawnSource source, @Nullable ItemKey item) {
+    /**
+     * Like {@link #add(Location, double, SpawnSource)} but for one entity of {@code item}: it is used up by the first
+     * match.
+     */
+    public void add(Location location, double radius, SpawnSource source, @Nullable ItemKey item) {
         if (entries.isEmpty()) {
             plugin.getServer().getScheduler().runTask(plugin, entries::clear);
         }
-        entries.add(new Entry(location.getWorld().getUID(), location.getX(), location.getY(), location.getZ(),
-                radius * radius, source, item));
+        entries.add(new Entry(
+                location.getWorld().getUID(),
+                location.getX(),
+                location.getY(),
+                location.getZ(),
+                radius * radius,
+                source,
+                item));
     }
 
     /** Closest hint covering {@code location} that is not meant for another item. */
-    public @Nullable SpawnSource find(@NotNull Location location, @Nullable ItemKey item) {
+    public @Nullable SpawnSource find(Location location, @Nullable ItemKey item) {
         Entry best = null;
         double bestDistance = Double.MAX_VALUE;
         for (val entry : entries) {
