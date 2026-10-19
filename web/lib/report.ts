@@ -1,6 +1,6 @@
 /** `Report` v1, produced by the plugin's `ReportJson`. Keep both in sync (see WEB-PLAN.md §1). */
 
-export type HolderKind = "PLAYER" | "BLOCK" | "ENTITY" | (string & {})
+export type HolderKind = "PLAYER" | "BLOCK" | "ENTITY" | "SHULKER" | (string & {})
 
 /** `type` is the namespaced block or entity type ("minecraft:zombie"); `label` its custom name ("Steve") or else the type's name */
 export type Holder = { label: string; kind: HolderKind; type?: string }

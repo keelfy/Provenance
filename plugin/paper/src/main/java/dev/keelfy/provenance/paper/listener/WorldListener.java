@@ -64,6 +64,7 @@ public final class WorldListener implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onBlockDrop(BlockDropItemEvent event) {
+        Holders.carry(event.getBlockState(), event.getItems());
         world.blockDrops(
                 PaperPlayer.of(event.getPlayer()).origin(),
                 event.getItems().stream().map(Positions::drop).toList());
@@ -100,6 +101,7 @@ public final class WorldListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlace(BlockPlaceEvent event) {
         val block = event.getBlock();
+        Holders.mark(block, event.getItemInHand());
         val item = ItemKeys.of(event.getItemInHand());
         if (item != null) {
             world.blockPlaced(

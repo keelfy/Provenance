@@ -132,7 +132,7 @@ const groupId = (type: string) => `group:${type}`
  * How many holders of one type it takes to fold them. Mobs of a farm are many holders (one per chunk and killer), so
  * two already fold. A few chests read better one by one: which chest it was matters when items go missing.
  */
-const FOLD_AT: Partial<Record<HolderKind, number>> = { ENTITY: 2, BLOCK: 5 }
+const FOLD_AT: Partial<Record<HolderKind, number>> = { ENTITY: 2, BLOCK: 5, SHULKER: 5 }
 
 /** The type whose holders fold into one plate, if this holder is one of them. The root always stands alone. */
 function groupType(report: Report, id: string): string | undefined {

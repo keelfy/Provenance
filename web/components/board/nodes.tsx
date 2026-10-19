@@ -26,7 +26,7 @@ function Ports() {
   ])
 }
 
-const HOLDER_ICON: Record<string, typeof User> = { PLAYER: User, BLOCK: Box, ENTITY: PawPrint, DROP: Package }
+const HOLDER_ICON: Record<string, typeof User> = { PLAYER: User, BLOCK: Box, SHULKER: Box, ENTITY: PawPrint, DROP: Package }
 
 /** Players are pills, everything else is a plate. The root of the report is filled. */
 export function HolderNode({ data: { node, selected, onToggle } }: NodeProps<BoardNode>) {

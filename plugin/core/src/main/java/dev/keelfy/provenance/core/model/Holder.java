@@ -5,9 +5,9 @@ import java.util.UUID;
 import org.jspecify.annotations.Nullable;
 
 /**
- * Anything that holds items: a player inventory, a container block, or an entity. {@code meta} says what a block or an
- * entity was when the event happened; it is not part of the identity: {@link #equals} and {@link #hashCode} look at
- * {@code id} only.
+ * Anything that holds items: a player inventory, a container block, a shulker box, or an entity. {@code meta} says what
+ * a block or an entity was when the event happened; it is not part of the identity: {@link #equals} and
+ * {@link #hashCode} look at {@code id} only.
  *
  * @author keelfy
  */
@@ -64,6 +64,10 @@ public record Holder(HolderId id, HolderMeta meta) {
         return new Holder(Kind.ENTITY, uuid.toString());
     }
 
+    public static Holder shulker(UUID uuid) {
+        return new Holder(Kind.SHULKER, uuid.toString());
+    }
+
     public boolean isPlayer() {
         return id.isPlayer();
     }
@@ -81,11 +85,14 @@ public record Holder(HolderId id, HolderMeta meta) {
         return meta.label();
     }
 
-    /** Where it is: a block's chunk comes from its coordinates, an entity's from the meta recorded with the event. */
+    /**
+     * Where it is: a block's chunk comes from its coordinates, an entity's or a shulker's from the meta recorded with
+     * the event.
+     */
     public @Nullable Chunk chunk() {
         return switch (id.kind()) {
             case BLOCK -> id.blockPos().chunk();
-            case ENTITY -> meta.chunk();
+            case ENTITY, SHULKER -> meta.chunk();
             default -> null;
         };
     }
