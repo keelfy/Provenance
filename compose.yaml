@@ -1,0 +1,18 @@
+services:
+  web:
+    build: ./web
+    restart: unless-stopped
+    environment:
+      # Same value as the plugin's `web.secret`.
+      PROVENANCE_SECRET: ${PROVENANCE_SECRET:?set PROVENANCE_SECRET}
+      MAX_TTL_HOURS: 72
+      REFRESH_WINDOW_MINUTES: 10
+      MAX_BODY_MB: 8
+    volumes:
+      - reports:/data
+    # Expose to the reverse proxy only; it terminates HTTPS and must not rewrite paths.
+    ports:
+      - "127.0.0.1:3000:3000"
+
+volumes:
+  reports:

@@ -17,5 +17,5 @@ bun test
 | `REFRESH_WINDOW_MINUTES` | `10` | How long a link keeps working after its first read. |
 | `MAX_BODY_MB` | `8` | Largest accepted report. |
 
-Deploy with the `Dockerfile` behind a reverse proxy that terminates HTTPS and limits request size. Set the
+Deploy with the `Dockerfile` (`PROVENANCE_SECRET=... docker compose up -d --build` from the repo root, see `compose.yaml`) behind a reverse proxy that terminates HTTPS and limits request size. Set the
 plugin's `web.endpoint` to the public URL. The proxy must not rewrite the path: the signature covers it.
