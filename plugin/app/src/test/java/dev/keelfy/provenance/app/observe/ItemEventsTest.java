@@ -1,0 +1,105 @@
+package dev.keelfy.provenance.app.observe;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import dev.keelfy.provenance.app.Fakes;
+import dev.keelfy.provenance.app.inventory.InventoryReconciler;
+import dev.keelfy.provenance.app.inventory.ViewTarget;
+import dev.keelfy.provenance.core.Ledger;
+import dev.keelfy.provenance.core.model.Cause;
+import dev.keelfy.provenance.core.model.Holder;
+import dev.keelfy.provenance.core.model.ItemKey;
+import dev.keelfy.provenance.core.model.OriginId;
+import java.util.Map;
+import java.util.UUID;
+import lombok.val;
+import org.junit.jupiter.api.Test;
+
+class ItemEventsTest {
+
+    private static final ItemKey DIAMOND = new ItemKey("minecraft:diamond");
+
+    private final Fakes.ManualScheduler scheduler = new Fakes.ManualScheduler();
+    private final Ledger ledger = new Ledger(() -> 0);
+    private final Fakes.Player alice = new Fakes.Player();
+    private final InventoryReconciler reconciler =
+            new InventoryReconciler(scheduler, Fakes.directory(alice), ledger, Fakes.settings());
+    private final ItemEvents items = new ItemEvents(ledger, reconciler, scheduler);
+    private final Holder entity = Holder.entity(UUID.randomUUID());
+
+    @Test
+    void droppingFirstAlignsThePlayerWithWhatTheyHadBeforeTheDrop() {
+        alice.items.put(DIAMOND, 1L); // what is left after throwing 2
+
+        items.dropped(alice, entity, Map.of(DIAMOND, 2L));
+
+        assertThat(ledger.getCount(entity, DIAMOND)).isEqualTo(2);
+        assertThat(ledger.getCount(alice.holder(), DIAMOND)).isEqualTo(1);
+        assertThat(ledger.pool(entity, DIAMOND).getOrigin().shares()).containsOnlyKeys(OriginId.UNKNOWN);
+    }
+
+    @Test
+    void droppingDuringSettlementLeavesReconciliationToIt() {
+        reconciler.track(alice, ViewTarget.container(null, () -> Map.of()));
+        alice.items.put(DIAMOND, 1L);
+
+        items.dropped(alice, entity, Map.of(DIAMOND, 2L));
+
+        // nothing was reconciled, so the transfer was capped by what the ledger knew: the shortfall is a mint
+        assertThat(ledger.getCount(entity, DIAMOND)).isEqualTo(2);
+        assertThat(ledger.getCount(alice.holder(), DIAMOND)).isZero();
+    }
+
+    @Test
+    void creativePlayersMintCreativeItems() {
+        alice.creative = true;
+        alice.items.put(DIAMOND, 1L);
+
+        items.dropped(alice, entity, Map.of(DIAMOND, 1L));
+
+        assertThat(ledger.pool(entity, DIAMOND).getOrigin().shares()).containsOnlyKeys(OriginId.CREATIVE);
+    }
+
+    @Test
+    void pickingUpAlignsThePlayerFirst() {
+        ledger.mint(Cause.DROP, entity, DIAMOND, 2, OriginId.WORLD);
+        alice.items.put(DIAMOND, 1L); // the server adds the picked-up items after the event
+
+        items.pickedUp(entity, alice, Map.of(DIAMOND, 2L));
+
+        assertThat(ledger.getCount(alice.holder(), DIAMOND)).isEqualTo(3);
+        assertThat(ledger.getCount(entity, DIAMOND)).isZero();
+    }
+
+    @Test
+    void mergingMovesOnlyWhatFitted() {
+        val target = Holder.entity(UUID.randomUUID());
+        ledger.mint(Cause.DROP, entity, DIAMOND, 5, OriginId.WORLD);
+
+        items.merged(entity, target, Map.of(DIAMOND, 3L));
+        items.merged(entity, target, Map.of());
+
+        assertThat(ledger.getCount(entity, DIAMOND)).isEqualTo(2);
+        assertThat(ledger.getCount(target, DIAMOND)).isEqualTo(3);
+    }
+
+    @Test
+    void aRemovedFrameKeepsItsPoolOneMoreTick() {
+        ledger.mint(Cause.DROP, entity, DIAMOND, 1, OriginId.WORLD);
+
+        items.removed(entity, true);
+        assertThat(ledger.getCount(entity, DIAMOND)).isEqualTo(1);
+
+        scheduler.tick();
+        assertThat(ledger.getCount(entity, DIAMOND)).isZero();
+    }
+
+    @Test
+    void otherEntitiesAreClearedAtOnce() {
+        ledger.mint(Cause.DROP, entity, DIAMOND, 1, OriginId.WORLD);
+
+        items.removed(entity, false);
+
+        assertThat(ledger.getCount(entity, DIAMOND)).isZero();
+    }
+}

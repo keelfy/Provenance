@@ -2,15 +2,11 @@ package dev.keelfy.provenance.paper.listener;
 
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
-import dev.keelfy.provenance.Settings;
-import dev.keelfy.provenance.core.model.Cause;
-import dev.keelfy.provenance.core.model.OriginId;
+import dev.keelfy.provenance.app.observe.ShowcaseEvents;
 import dev.keelfy.provenance.paper.Holders;
 import dev.keelfy.provenance.paper.ItemKeys;
-import dev.keelfy.provenance.paper.SpawnSource;
-import dev.keelfy.provenance.paper.ViewTarget;
-import dev.keelfy.provenance.paper.inventory.InventoryReconciler;
-import dev.keelfy.provenance.paper.world.SpawnContexts;
+import dev.keelfy.provenance.paper.PaperPlayer;
+import dev.keelfy.provenance.paper.Positions;
 import lombok.RequiredArgsConstructor;
 import lombok.val;
 import org.bukkit.entity.Entity;
@@ -24,8 +20,7 @@ import org.bukkit.event.player.PlayerArmorStandManipulateEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
 
 /**
- * Item frames and armor stands: they keep items without a view, so an interaction is settled like a container, and an
- * item knocked out of a frame carries the frame's pool. Items of a broken armor stand are covered by the death hint.
+ * Translates interactions with item frames and armor stands into {@link ShowcaseEvents}.
  *
  * @author keelfy
  */
@@ -33,23 +28,19 @@ import org.bukkit.event.player.PlayerInteractEntityEvent;
 @RequiredArgsConstructor(onConstructor = @__(@Inject))
 public final class ShowcaseListener implements Listener {
 
-    private final Settings settings;
-    private final SpawnContexts contexts;
-    private final InventoryReconciler reconciler;
+    private final ShowcaseEvents showcases;
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onFrameInteract(PlayerInteractEntityEvent event) {
         if (event.getRightClicked() instanceof ItemFrame frame) {
-            val target = ViewTarget.container(Holders.of(frame), () -> ItemKeys.count(frame));
-            reconciler.track(event.getPlayer(), target);
+            showcases.interacted(PaperPlayer.of(event.getPlayer()), Holders.of(frame), () -> ItemKeys.count(frame));
         }
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onStandManipulate(PlayerArmorStandManipulateEvent event) {
         val stand = event.getRightClicked();
-        val target = ViewTarget.container(Holders.of(stand), () -> ItemKeys.count(stand));
-        reconciler.track(event.getPlayer(), target);
+        showcases.interacted(PaperPlayer.of(event.getPlayer()), Holders.of(stand), () -> ItemKeys.count(stand));
     }
 
     /** A hit pops the item out of the frame. */
@@ -70,8 +61,7 @@ public final class ShowcaseListener implements Listener {
         }
         val key = ItemKeys.of(frame.getItem());
         if (key != null) {
-            val spawnSource = new SpawnSource(Holders.of(frame), OriginId.UNKNOWN, Cause.DROP);
-            contexts.add(frame.getLocation(), settings.spillRadius(), spawnSource, key);
+            showcases.spills(Holders.of(frame), Positions.of(frame.getLocation()), key);
         }
     }
 }

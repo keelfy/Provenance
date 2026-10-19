@@ -2,12 +2,10 @@ package dev.keelfy.provenance.paper.listener;
 
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
-import dev.keelfy.provenance.core.Ledger;
-import dev.keelfy.provenance.core.model.Cause;
+import dev.keelfy.provenance.app.observe.ItemEvents;
 import dev.keelfy.provenance.paper.Holders;
 import dev.keelfy.provenance.paper.ItemKeys;
-import dev.keelfy.provenance.paper.Players;
-import dev.keelfy.provenance.paper.inventory.InventoryReconciler;
+import dev.keelfy.provenance.paper.PaperPlayer;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.val;
@@ -20,11 +18,9 @@ import org.bukkit.event.entity.EntityPickupItemEvent;
 import org.bukkit.event.entity.EntityRemoveEvent;
 import org.bukkit.event.entity.ItemMergeEvent;
 import org.bukkit.event.player.PlayerDropItemEvent;
-import org.bukkit.plugin.Plugin;
 
 /**
- * Items on the ground: each item entity is its own holder from drop to pickup, merge or removal. Mobs that pick items
- * up hold them the same way until they die.
+ * Translates what happens to items on the ground (drop, pickup, merge, removal) into {@link ItemEvents}.
  *
  * @author keelfy
  */
@@ -36,26 +32,12 @@ public final class ItemEntityListener implements Listener {
     private static final Set<EntityRemoveEvent.Cause> PERSISTENT =
             Set.of(EntityRemoveEvent.Cause.UNLOAD, EntityRemoveEvent.Cause.PLAYER_QUIT);
 
-    private final Plugin plugin;
-    private final Ledger ledger;
-    private final InventoryReconciler reconciler;
+    private final ItemEvents items;
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onDrop(PlayerDropItemEvent event) {
-        val player = event.getPlayer();
         val drop = event.getItemDrop();
-        val dropped = ItemKeys.count(drop.getItemStack());
-        if (dropped.isEmpty()) {
-            return;
-        }
-
-        if (!reconciler.isSettling(player)) {
-            // The stack has already left the inventory; reconcile against the state before the drop.
-            val before = Players.counts(player);
-            dropped.forEach((item, amount) -> before.merge(item, amount, Long::sum));
-            ledger.reconcile(Cause.RECONCILE, Holders.of(player), before, Players.mintOrigin(player));
-        }
-        ledger.transfer(Cause.DROP, Holders.of(player), Holders.of(drop), dropped);
+        items.dropped(PaperPlayer.of(event.getPlayer()), Holders.of(drop), ItemKeys.count(drop.getItemStack()));
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -66,15 +48,13 @@ public final class ItemEntityListener implements Listener {
             return;
         }
 
+        val counts = ItemKeys.count(item.getItemStack().asQuantity(picked));
         val picker = event.getEntity();
         if (picker instanceof Player player) {
-            reconciler.reconcile(player);
+            items.pickedUp(Holders.of(item), PaperPlayer.of(player), counts);
+        } else {
+            items.pickedUp(Holders.of(item), Holders.of(picker), counts);
         }
-        ledger.transfer(
-                Cause.PICKUP,
-                Holders.of(item),
-                Holders.of(picker),
-                ItemKeys.count(item.getItemStack().asQuantity(picked)));
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -88,8 +68,7 @@ public final class ItemEntityListener implements Listener {
             return;
         }
 
-        ledger.transfer(
-                Cause.DROP,
+        items.merged(
                 Holders.of(source),
                 Holders.of(target),
                 ItemKeys.count(source.getItemStack().asQuantity(moved)));
@@ -101,12 +80,6 @@ public final class ItemEntityListener implements Listener {
         if (entity instanceof Player || PERSISTENT.contains(event.getCause())) {
             return;
         }
-        val holder = Holders.of(entity);
-        if (entity instanceof Hanging) {
-            // A frame is removed before its item spawns; the spill still needs the pool.
-            plugin.getServer().getScheduler().runTask(plugin, () -> ledger.clear(Cause.DROP, holder));
-            return;
-        }
-        ledger.clear(Cause.DROP, holder);
+        items.removed(Holders.of(entity), entity instanceof Hanging);
     }
 }

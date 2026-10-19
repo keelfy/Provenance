@@ -109,7 +109,7 @@ Creative-игрок минтит `CREATIVE` вместо `UNKNOWN`.
 - Бакеты (`journal.bucket-minutes`, по умолчанию 60): когда бакет закончился (+10 мин на опоздавшие предметы), `SqliteStore.compact`
   (поток записи, раз в бакет) складывает в одну строку события, равные во всём, кроме времени и количества
   (`Bucketing`): `seq` и `time` от первого, `until` — время последнего. Место события — `chunk` (`world:x:z`, колонка
-  16×16): у блока из координат id, у сущности из `HolderInfo.chunk` на момент события; события разных чанков не
+  16×16): у блока из координат id, у сущности из `HolderMeta.chunk` на момент события; события разных чанков не
   склеиваются. Убитые существа (причина `kill`) схлопываются в один холдер `mob:<тип>@<чанк>#<убийца>`: ферма — одна строка, а истории двух игроков в одном чанке не пересекаются. Перед этим выпавшие стеки сворачиваются, как в вебе: «добыто → предмет →
   игрок» становится «добыто → игрок». Трогаются только события с `seq <= last_seq` (уже в снимке), поэтому replay и
   состояние не меняются. Стек, подобранный в следующем бакете, остаётся сырым и сворачивается в вебе.
@@ -127,11 +127,11 @@ Creative-игрок минтит `CREATIVE` вместо `UNKNOWN`.
 
 ## 6. Пакеты
 
-Два Gradle-подпроекта: `:core` (только JDK, тесты) и `:paper` (зависит от `:core`, jar плагина с вшитым core,
-`runServer` в корневом `run/`).
+Gradle-подпроекты: `:core` (только JDK, тесты), `:storage`, `:app` (логика плагина без платформы) и `:paper`
+(адаптер Bukkit; jar плагина с вшитыми core, storage и app, `runServer` в корневом `run/`).
 
 ```
-Gradle-модули: `core` → `storage` → `paper` (плагин собирается в один jar).
+Gradle-модули: `core` → `storage` → `app` → `paper` (плагин собирается в один jar).
 
 core/          Ledger (команды → события; читается через LedgerView), Journal (seq, часы, склейка автоматики),
                LedgerState → Projection: PoolProjection, FlowProjection (+ Pool, FlowGraph),
@@ -142,9 +142,17 @@ core/event/    LedgerEvent, Envelope (зависят от model, taint)
 core/analysis/ Correlation, Link — только чтение Ledger
                Зависимости строго вниз: analysis → core → event → taint → model
 storage/   SqliteStore (ChangeSink), WriteBehind, VectorCodec — чистый JDBC, без Bukkit
-paper/     Holders, ItemKeys, Players, ViewKind/ViewTarget, SpawnContexts/SpawnSource,
-           listener/{Inventory, ItemEntity, World, Automation, Showcase}Listener,
-           command/{ProvCommand, Labels}
+app/       Логика плагина без платформы (anti-corruption layer): повтор под другое ядро = новый адаптер, не новая логика.
+           Settings (через ConfigSource), ProvenanceStorage, inventory/{InventoryReconciler, ViewTarget, ViewKind},
+           world/{SpawnContexts, SpawnSource, WorldPos, ItemDrop},
+           observe/{World, Automation, Item, Showcase}Events — факты игры → команды Ledger,
+           command/{ProvService, Labels, HistoryView, Line, Span, Tone, Sender} — команды /prov и их вывод,
+           web/{ReportJson, ReportPublisher},
+           port/{Scheduler, Log, ConfigSource, PlayerDirectory, OnlinePlayer} — всё, что нужно от платформы
+paper/     Адаптер Bukkit/Paper: PaperScheduler, PaperLog, PaperConfig, PaperDirectory, PaperPlayer, PaperSender,
+           Holders, ItemKeys, Views, Positions (Bukkit → значения app/core),
+           listener/{Inventory, ItemEntity, World, Automation, Showcase}Listener — событие Bukkit → вызов *Events,
+           command/ProvCommand — дерево Brigadier и права, остальное в ProvService
 ```
 
 ## 7. Этапы

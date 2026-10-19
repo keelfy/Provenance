@@ -1,16 +1,30 @@
 package dev.keelfy.provenance;
 
 import com.google.inject.AbstractModule;
+import dev.keelfy.provenance.app.ProvenanceStorage;
+import dev.keelfy.provenance.app.Settings;
+import dev.keelfy.provenance.app.command.ProvService;
+import dev.keelfy.provenance.app.inventory.InventoryReconciler;
+import dev.keelfy.provenance.app.observe.AutomationEvents;
+import dev.keelfy.provenance.app.observe.ItemEvents;
+import dev.keelfy.provenance.app.observe.ShowcaseEvents;
+import dev.keelfy.provenance.app.observe.WorldEvents;
+import dev.keelfy.provenance.app.port.PlayerDirectory;
+import dev.keelfy.provenance.app.web.ReportPublisher;
+import dev.keelfy.provenance.app.world.SpawnContexts;
 import dev.keelfy.provenance.core.Ledger;
-import dev.keelfy.provenance.paper.inventory.InventoryReconciler;
-import dev.keelfy.provenance.paper.world.SpawnContexts;
+import dev.keelfy.provenance.paper.PaperConfig;
+import dev.keelfy.provenance.paper.PaperDirectory;
+import dev.keelfy.provenance.paper.PaperLog;
+import dev.keelfy.provenance.paper.PaperScheduler;
 import lombok.RequiredArgsConstructor;
 import lombok.val;
-import org.bukkit.Server;
-import org.bukkit.plugin.Plugin;
-import org.bukkit.plugin.java.JavaPlugin;
 
-/** @author keelfy */
+/**
+ * Builds the application layer on top of the Paper adapters and hands it to the listeners and the command.
+ *
+ * @author keelfy
+ */
 @RequiredArgsConstructor
 public final class ProvenanceModule extends AbstractModule {
 
@@ -19,20 +33,26 @@ public final class ProvenanceModule extends AbstractModule {
     @Override
     protected void configure() {
         plugin.saveDefaultConfig();
-        val settings = Settings.from(plugin.getConfig());
+        val settings = Settings.from(new PaperConfig(plugin.getConfig()));
+        val scheduler = new PaperScheduler(plugin);
+        val log = new PaperLog(plugin.getLogger());
+        val directory = new PaperDirectory(plugin.getServer());
         val ledger = new Ledger(System::currentTimeMillis, settings.mergeAutomation());
-        val contexts = new SpawnContexts(plugin);
-        val reconciler = new InventoryReconciler(plugin, ledger, settings);
-        val storage = new ProvenanceStorage(plugin, plugin.getLogger(), plugin.getServer(), ledger, settings);
+        val contexts = new SpawnContexts(scheduler);
+        val reconciler = new InventoryReconciler(scheduler, directory, ledger, settings);
+        val storage = new ProvenanceStorage(plugin.getDataFolder().toPath(), log, scheduler, ledger, settings);
+        val publisher = new ReportPublisher(settings);
 
         bind(ProvenancePlugin.class).toInstance(plugin);
-        bind(JavaPlugin.class).toInstance(plugin);
-        bind(Plugin.class).toInstance(plugin);
-        bind(Server.class).toInstance(plugin.getServer());
-        bind(Settings.class).toInstance(settings);
-        bind(Ledger.class).toInstance(ledger);
-        bind(SpawnContexts.class).toInstance(contexts);
-        bind(InventoryReconciler.class).toInstance(reconciler);
         bind(ProvenanceStorage.class).toInstance(storage);
+        bind(InventoryReconciler.class).toInstance(reconciler);
+        bind(PlayerDirectory.class).toInstance(directory);
+        bind(WorldEvents.class).toInstance(new WorldEvents(settings, ledger, contexts, reconciler, scheduler));
+        bind(AutomationEvents.class).toInstance(new AutomationEvents(settings, ledger, contexts));
+        bind(ItemEvents.class).toInstance(new ItemEvents(ledger, reconciler, scheduler));
+        bind(ShowcaseEvents.class).toInstance(new ShowcaseEvents(settings, contexts, reconciler));
+        bind(ProvService.class)
+                .toInstance(
+                        new ProvService(ledger, reconciler, storage, publisher, directory, scheduler, log, settings));
     }
 }
