@@ -37,6 +37,7 @@ export function foldDrops(report: Report): Report {
         ...event,
         seq: pickup.seq,
         time: pickup.time,
+        until: undefined,
         other: pickup.other,
         otherAs: pickup.otherAs,
         amount,

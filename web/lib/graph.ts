@@ -1,4 +1,4 @@
-import { holderDetail, itemName } from "@/lib/format"
+import { formatChunk, holderDetail, itemName } from "@/lib/format"
 import type { Holder, Report, ReportEvent } from "@/lib/report"
 
 export type Filters = {
@@ -23,6 +23,12 @@ export type GraphNode = {
   type?: string
   /** Origins: how the items were created ("Mined by"), above the name */
   how?: string
+  /** Creatures that dropped loot: who killed them, above the name. The creature is the source, not the killer. */
+  killedBy?: string
+  /** A plate standing for several creatures of one type: how many entries are folded into it */
+  folded?: number
+  /** A creature shown on its own from an expanded group: the group's id, to fold it back */
+  group?: string
   root: boolean
   suspicious: boolean
   /** Conversions and clears, which have no edge */
@@ -39,8 +45,28 @@ export type GraphEdge = {
   suspicious: boolean
 }
 
+/** One entry of a group: a creature, or the creatures of one type one player killed in one chunk. */
+export type Member = {
+  id: string
+  /** Where it is: the chunk when known, else the short id */
+  where: string
+  killedBy?: string
+  from: number
+  until: number
+  /** What it gave away or lost */
+  items: Map<string, number>
+  events: number
+}
+
+/** Creatures of one type, drawn as one plate until the reader expands them. */
+export type Group = { id: string; label: string; expanded: boolean; members: Member[] }
+
 export type Graph = {
   nodes: GraphNode[]
+  /** By the group's id; groups exist for every type with two or more entries, expanded or not */
+  groups: Map<string, Group>
+  /** The plate a folded creature is drawn in; creatures not in the map have a node of their own */
+  folded: Map<string, string>
   edges: GraphEdge[]
   /** Events behind each node / edge id, newest first (`js-index-maps`) */
   byNode: Map<string, ReportEvent[]>
@@ -49,6 +75,8 @@ export type Graph = {
 }
 
 export const BURN = "sink:burned"
+
+const NO_GROUPS: ReadonlySet<string> = new Set()
 
 /** What the cause says about a creation, ahead of the origin's name */
 const CREATED_BY: Record<string, string> = { mine: "Mined by", kill: "Hunted by", loot: "Looted by" }
@@ -94,28 +122,107 @@ function typeName(info: Holder | undefined): string | undefined {
   return name !== info?.label ? name : undefined
 }
 
-export function buildGraph(report: Report, filters: Filters): Graph {
+const groupId = (type: string) => `group:${type}`
+
+/** The type whose creatures fold into one plate, if this holder is one of them. The root always stands alone. */
+function groupType(report: Report, id: string): string | undefined {
+  const info = report.holders[id]
+  return info?.kind === "ENTITY" && id !== report.query.root ? info.type : undefined
+}
+
+/**
+ * Creatures of one type, in the order events reach them. Mobs of a farm are many holders (one per chunk and killer)
+ * and each mob type has its own; folding them is what keeps a long history readable.
+ */
+function groupMembers(report: Report, events: ReportEvent[]): Map<string, Map<string, Member>> {
+  const groups = new Map<string, Map<string, Member>>()
+  const touch = (id: string, event: ReportEvent) => {
+    const type = groupType(report, id)
+    if (!type) return undefined
+    let members = groups.get(type)
+    if (!members) groups.set(type, (members = new Map()))
+    let member = members.get(id)
+    if (!member) {
+      member = { id, where: "", from: Infinity, until: -Infinity, items: new Map(), events: 0 }
+      members.set(id, member)
+    }
+    member.events++
+    member.from = Math.min(member.from, event.time)
+    member.until = Math.max(member.until, event.until ?? event.time)
+    member.where ||= event.holder === id && event.chunk ? formatChunk(event.chunk) : ""
+    return member
+  }
+  for (const event of events) {
+    const member = touch(event.holder, event)
+    if (event.type === "TRANSFERRED") touch(event.other, event)
+    if (!member) continue
+    if (event.type === "TRANSFERRED" || event.type === "BURNED") {
+      member.items.set(event.item, (member.items.get(event.item) ?? 0) + event.amount)
+    } else if (event.type === "MINTED" && event.cause === "kill" && !event.suspicious) {
+      member.killedBy ??= event.origin
+    }
+  }
+  for (const [type, members] of groups) {
+    if (members.size < 2) groups.delete(type)
+    else for (const m of members.values()) m.where ||= holderDetail(m.id)
+  }
+  return groups
+}
+
+/**
+ * `expanded` lists the groups (by id) shown as separate creatures instead of one plate.
+ */
+export function buildGraph(report: Report, filters: Filters, expanded: ReadonlySet<string> = NO_GROUPS): Graph {
   const nodes = new Map<string, GraphNode>()
   const edges = new Map<string, GraphEdge>()
   const byNode = new Map<string, ReportEvent[]>()
   const byEdge = new Map<string, ReportEvent[]>()
   const events = report.events.filter((e) => matches(e, filters)).sort((a, b) => b.seq - a.seq)
 
-  const holder = (id: string) => {
+  const groups = new Map<string, Group>()
+  /** Creatures that stand in a plate: holder id -> the plate's id */
+  const folded = new Map<string, string>()
+  /** Creatures shown on their own from an expanded group */
+  const groupOf = new Map<string, string>()
+  for (const [type, members] of groupMembers(report, events)) {
+    const id = groupId(type)
+    const open = expanded.has(id)
+    const list = [...members.values()].sort((a, b) => b.from - a.from) // newest first, like the events
+    groups.set(id, { id, label: itemName(type), expanded: open, members: list })
+    for (const m of list) (open ? groupOf : folded).set(m.id, id)
+  }
+  const killers = new Map<string, Set<string>>()
+
+  const holder = (real: string) => {
+    const id = folded.get(real) ?? real
     let node = nodes.get(id)
     if (!node) {
-      const info = report.holders[id]
-      node = {
-        id,
-        kind: "holder",
-        label: info?.label ?? id,
-        holderKind: info?.kind ?? id.split("/")[0],
-        detail: holderDetail(id),
-        type: typeName(info),
-        root: id === report.query.root,
-        suspicious: false,
-        notes: 0,
-      }
+      const plate = groups.get(id)
+      const info = report.holders[real]
+      node = plate
+        ? {
+            id,
+            kind: "holder",
+            label: plate.label,
+            holderKind: "ENTITY",
+            detail: `${plate.members.length} entries`,
+            folded: plate.members.length,
+            root: false,
+            suspicious: false,
+            notes: 0,
+          }
+        : {
+            id,
+            kind: "holder",
+            label: info?.label ?? id,
+            holderKind: info?.kind ?? id.split("/")[0],
+            detail: holderDetail(id),
+            type: typeName(info),
+            group: groupOf.get(id),
+            root: id === report.query.root,
+            suspicious: false,
+            notes: 0,
+          }
       nodes.set(id, node)
     }
     return node
@@ -134,6 +241,7 @@ export function buildGraph(report: Report, filters: Filters): Graph {
     else map.set(id, [event])
   }
   const link = (source: string, target: string, item: string, amount: number, event: ReportEvent) => {
+    if (source === target) return push(byNode, source, event) // within one plate: no edge to draw
     const id = `${source}>${target}`
     let edge = edges.get(id)
     if (!edge) {
@@ -152,6 +260,15 @@ export function buildGraph(report: Report, filters: Filters): Graph {
     const subject = holder(event.holder)
     switch (event.type) {
       case "MINTED": {
+        // Loot comes from the creature that died, not from the killer: a killer node on the left would read as
+        // "player -> cow -> player". The creature is where the flow starts, and carries the killer's name.
+        if (event.cause === "kill" && subject.holderKind === "ENTITY" && !event.suspicious) {
+          const who = killers.get(subject.id)
+          if (who) who.add(event.origin)
+          else killers.set(subject.id, new Set([event.origin]))
+          push(byNode, subject.id, event)
+          break
+        }
         const how = createdBy(event.cause)
         const origin = other(`origin:${how}:${event.origin}`, "origin", event.origin)
         origin.how = how
@@ -161,12 +278,11 @@ export function buildGraph(report: Report, filters: Filters): Graph {
         break
       }
       case "TRANSFERRED":
-        holder(event.other)
-        link(event.holder, event.other, event.item, event.amount, event)
+        link(subject.id, holder(event.other).id, event.item, event.amount, event)
         break
       case "BURNED":
         other(BURN, "sink", "Burned")
-        link(event.holder, BURN, event.item, event.amount, event)
+        link(subject.id, BURN, event.item, event.amount, event)
         break
       default:
         subject.notes++
@@ -174,8 +290,11 @@ export function buildGraph(report: Report, filters: Filters): Graph {
     }
   }
   holder(report.query.root)
+  for (const [id, who] of killers) {
+    nodes.get(id)!.killedBy = who.size === 1 ? [...who][0] : `${who.size} hunters`
+  }
 
-  return { nodes: [...nodes.values()], edges: [...edges.values()], byNode, byEdge, events }
+  return { nodes: [...nodes.values()], groups, folded, edges: [...edges.values()], byNode, byEdge, events }
 }
 
 /**

@@ -3,6 +3,13 @@ package dev.keelfy.provenance.core;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 
+import dev.keelfy.provenance.core.event.Envelope;
+import dev.keelfy.provenance.core.event.LedgerEvent;
+import dev.keelfy.provenance.core.model.Cause;
+import dev.keelfy.provenance.core.model.Holder;
+import dev.keelfy.provenance.core.model.ItemKey;
+import dev.keelfy.provenance.core.model.OriginId;
+import dev.keelfy.provenance.core.taint.TaintVector;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -19,10 +26,10 @@ class JournalTest {
 
     private final UUID aliceId = UUID.randomUUID();
     private final UUID bobId = UUID.randomUUID();
-    private final HolderId alice = HolderId.player(aliceId);
-    private final HolderId bob = HolderId.player(bobId);
-    private final HolderId chest = HolderId.block("world", 0, 64, 0);
-    private final HolderId movedChest = HolderId.block("world", 1, 64, 0);
+    private final Holder alice = Holder.player(aliceId);
+    private final Holder bob = Holder.player(bobId);
+    private final Holder chest = Holder.block("world", 0, 64, 0);
+    private final Holder movedChest = Holder.block("world", 1, 64, 0);
 
     private long now;
     private final Ledger ledger = new Ledger(() -> ++now);

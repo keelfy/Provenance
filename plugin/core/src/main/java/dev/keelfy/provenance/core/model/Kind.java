@@ -1,4 +1,4 @@
-package dev.keelfy.provenance.core;
+package dev.keelfy.provenance.core.model;
 
 /** @author keelfy */
 public enum Kind {

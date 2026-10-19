@@ -1,4 +1,6 @@
-package dev.keelfy.provenance.core;
+package dev.keelfy.provenance.core.analysis;
+
+import dev.keelfy.provenance.core.model.OriginId;
 
 /**
  * A link between two players, with flow and similarity metrics.

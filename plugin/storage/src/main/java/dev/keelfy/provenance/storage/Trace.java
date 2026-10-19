@@ -1,6 +1,6 @@
 package dev.keelfy.provenance.storage;
 
-import dev.keelfy.provenance.core.Envelope;
+import dev.keelfy.provenance.core.event.Envelope;
 import java.util.List;
 
 /**

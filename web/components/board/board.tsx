@@ -36,10 +36,12 @@ export default function Board({
   graph,
   selection,
   onSelect,
+  onToggle,
 }: {
   graph: Graph
   selection: Selection
   onSelect: (selection: Selection) => void
+  onToggle: (group: string) => void
 }) {
   const placement = useMemo(() => place(graph), [graph])
 
@@ -57,9 +59,13 @@ export default function Board({
         id: node.id,
         type: node.kind,
         position: placement.get(node.id)!,
-        data: { node, selected: selection?.kind === "node" && selection.id === node.id },
+        data: {
+          node,
+          selected: selection?.kind === "node" && selection.id === node.id,
+          onToggle: node.folded ? () => onToggle(node.id) : node.group ? () => onToggle(node.group!) : undefined,
+        },
       })),
-    [graph, placement, selection],
+    [graph, placement, selection, onToggle],
   )
 
   const edges = useMemo<RoutedEdge[]>(() => {

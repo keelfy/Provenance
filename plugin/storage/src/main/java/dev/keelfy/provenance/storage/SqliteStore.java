@@ -1,18 +1,20 @@
 package dev.keelfy.provenance.storage;
 
-import dev.keelfy.provenance.core.Envelope;
-import dev.keelfy.provenance.core.HolderId;
-import dev.keelfy.provenance.core.HolderInfo;
-import dev.keelfy.provenance.core.ItemKey;
-import dev.keelfy.provenance.core.Kind;
 import dev.keelfy.provenance.core.Ledger;
 import dev.keelfy.provenance.core.LedgerChanges;
-import dev.keelfy.provenance.core.OriginId;
+import dev.keelfy.provenance.core.event.Envelope;
+import dev.keelfy.provenance.core.model.Holder;
+import dev.keelfy.provenance.core.model.HolderMeta;
+import dev.keelfy.provenance.core.model.ItemKey;
+import dev.keelfy.provenance.core.model.Kind;
+import dev.keelfy.provenance.core.model.OriginId;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -34,23 +36,33 @@ import org.jspecify.annotations.Nullable;
 public final class SqliteStore implements ChangeSink {
 
     /** No migration: a database of another version is dropped (pre-release). */
-    private static final int SCHEMA_VERSION = 4;
+    private static final int SCHEMA_VERSION = 5;
 
     private static final String LAST_SEQ = "last_seq";
+    private static final String COMPACTED = "compacted";
+    /** How long after a bucket ends its last stragglers (items still on the ground, queued writes) may arrive. */
+    private static final long SETTLE_MILLIS = Duration.ofMinutes(10).toMillis();
+
     private static final String ITEM_ENTITY = "minecraft:item";
     private static final String EVENT_COLUMNS =
             "seq, time, cause, type, holder, other, item, amount, origin, custody, detail, durable,"
-                    + " holder_type, holder_label, other_type, other_label";
+                    + " holder_type, holder_label, other_type, other_label, until, chunk";
+
+    private static final String INSERT_EVENT = "INSERT OR IGNORE INTO event (" + EVENT_COLUMNS
+            + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
     private final Retention retention;
+    private final long bucketMillis;
     private final Connection connection;
 
-    public SqliteStore(Path file, Retention retention) throws SQLException {
-        this("jdbc:sqlite:" + file.toAbsolutePath(), retention);
+    /** @param bucket the span of time whose similar events {@link #compact} adds up */
+    public SqliteStore(Path file, Retention retention, Duration bucket) throws SQLException {
+        this("jdbc:sqlite:" + file.toAbsolutePath(), retention, bucket);
     }
 
-    public SqliteStore(String url, Retention retention) throws SQLException {
+    public SqliteStore(String url, Retention retention, Duration bucket) throws SQLException {
         this.retention = retention;
+        this.bucketMillis = bucket.toMillis();
         connection = DriverManager.getConnection(url);
         try (val statement = connection.createStatement()) {
             statement.execute("PRAGMA journal_mode=WAL");
@@ -82,7 +94,8 @@ public final class SqliteStore implements ChangeSink {
                         seq INTEGER PRIMARY KEY, time INTEGER NOT NULL, cause TEXT NOT NULL, type TEXT NOT NULL,
                         holder TEXT NOT NULL, other TEXT, item TEXT, amount INTEGER NOT NULL,
                         origin TEXT, custody TEXT, detail TEXT, durable INTEGER NOT NULL,
-                        holder_type TEXT, holder_label TEXT, other_type TEXT, other_label TEXT
+                        holder_type TEXT, holder_label TEXT, other_type TEXT, other_label TEXT,
+                        until INTEGER NOT NULL, chunk TEXT
                     )""");
             statement.execute("CREATE INDEX IF NOT EXISTS event_holder ON event (holder, seq)");
             statement.execute("CREATE INDEX IF NOT EXISTS event_other ON event (other, seq)");
@@ -99,7 +112,7 @@ public final class SqliteStore implements ChangeSink {
             try (val rows =
                     statement.executeQuery("SELECT holder_kind, holder_id, item, count, origin, custody FROM pool")) {
                 while (rows.next()) {
-                    val holder = new HolderId(Kind.valueOf(rows.getString(1)), rows.getString(2));
+                    val holder = new Holder(Kind.valueOf(rows.getString(1)), rows.getString(2));
                     ledger.restore(
                             holder,
                             new LedgerChanges.PoolRow(
@@ -143,19 +156,18 @@ public final class SqliteStore implements ChangeSink {
         try (val delete = connection.prepareStatement("DELETE FROM pool WHERE holder_kind = ? AND holder_id = ?");
                 val insert = connection.prepareStatement("INSERT INTO pool VALUES (?, ?, ?, ?, ?, ?)");
                 val flow = connection.prepareStatement("INSERT OR REPLACE INTO flow VALUES (?, ?, ?, ?)");
-                val event = connection.prepareStatement("INSERT OR IGNORE INTO event (" + EVENT_COLUMNS
-                        + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                val event = connection.prepareStatement(INSERT_EVENT);
                 val meta = connection.prepareStatement("INSERT OR REPLACE INTO meta VALUES ('" + LAST_SEQ + "', ?)")) {
 
             for (val entry : changes.holders().entrySet()) {
                 val holder = entry.getKey();
-                delete.setString(1, holder.kind().name());
-                delete.setString(2, holder.id());
+                delete.setString(1, holder.id().kind().name());
+                delete.setString(2, holder.id().id());
                 delete.addBatch();
 
                 for (val row : entry.getValue()) {
-                    insert.setString(1, holder.kind().name());
-                    insert.setString(2, holder.id());
+                    insert.setString(1, holder.id().kind().name());
+                    insert.setString(2, holder.id().id());
                     insert.setString(3, row.item().key());
                     insert.setLong(4, row.count());
                     insert.setString(5, VectorCodec.encode(row.origin()));
@@ -172,27 +184,7 @@ public final class SqliteStore implements ChangeSink {
             }
 
             for (val envelope : changes.events()) {
-                val row = EventRow.of(envelope);
-                event.setLong(1, row.seq());
-                event.setLong(2, row.time());
-                event.setString(3, row.cause());
-                event.setString(4, row.type());
-                event.setString(5, row.holder());
-                event.setString(6, row.other());
-                event.setString(7, row.item());
-                event.setLong(8, row.amount());
-                event.setString(9, row.origin());
-                event.setString(10, row.custody());
-                event.setString(11, row.detail());
-                event.setInt(12, row.durable() ? 1 : 0);
-                event.setString(
-                        13, row.holderInfo() == null ? null : row.holderInfo().type());
-                event.setString(
-                        14, row.holderInfo() == null ? null : row.holderInfo().label());
-                event.setString(
-                        15, row.otherInfo() == null ? null : row.otherInfo().type());
-                event.setString(
-                        16, row.otherInfo() == null ? null : row.otherInfo().label());
+                bind(event, EventRow.of(envelope));
                 event.addBatch();
             }
             meta.setLong(1, changes.lastSeq());
@@ -211,8 +203,29 @@ public final class SqliteStore implements ChangeSink {
         }
     }
 
+    private static void bind(PreparedStatement event, EventRow row) throws SQLException {
+        event.setLong(1, row.seq());
+        event.setLong(2, row.time());
+        event.setString(3, row.cause());
+        event.setString(4, row.type());
+        event.setString(5, row.holder());
+        event.setString(6, row.other());
+        event.setString(7, row.item());
+        event.setLong(8, row.amount());
+        event.setString(9, row.origin());
+        event.setString(10, row.custody());
+        event.setString(11, row.detail());
+        event.setInt(12, row.durable() ? 1 : 0);
+        event.setString(13, row.holderInfo() == null ? null : row.holderInfo().type());
+        event.setString(14, row.holderInfo() == null ? null : row.holderInfo().label());
+        event.setString(15, row.otherInfo() == null ? null : row.otherInfo().type());
+        event.setString(16, row.otherInfo() == null ? null : row.otherInfo().label());
+        event.setLong(17, row.until());
+        event.setString(18, row.chunk());
+    }
+
     @Override
-    public List<Envelope> history(HolderId holder, @Nullable ItemKey item, int limit) throws SQLException {
+    public List<Envelope> history(Holder holder, @Nullable ItemKey item, int limit) throws SQLException {
         val events = new ArrayList<Envelope>();
         for (val row : touching(EventRow.encode(holder), item, Long.MIN_VALUE, limit)) {
             events.add(row.toEnvelope());
@@ -221,7 +234,7 @@ public final class SqliteStore implements ChangeSink {
     }
 
     @Override
-    public Trace trace(HolderId root, @Nullable ItemKey item, long since, int depth, int limit) throws SQLException {
+    public Trace trace(Holder root, @Nullable ItemKey item, long since, int depth, int limit) throws SQLException {
         val found = new TreeMap<Long, EventRow>();
         val visited = new HashSet<String>();
         var frontier = List.of(EventRow.encode(root));
@@ -254,7 +267,7 @@ public final class SqliteStore implements ChangeSink {
 
     private static void visit(
             @Nullable String holder,
-            @Nullable HolderInfo info,
+            @Nullable HolderMeta info,
             Set<String> visited,
             Collection<String> sameHop,
             Collection<String> nextHop) {
@@ -299,6 +312,88 @@ public final class SqliteStore implements ChangeSink {
         }
     }
 
+    /**
+     * Adds up the similar events of every bucket that has ended (see {@link Bucketing}). Only events the snapshot
+     * already contains are touched, so replay is unaffected; each bucket is rewritten in one transaction.
+     */
+    @Override
+    public void compact(long now) throws SQLException {
+        val settled = (now - SETTLE_MILLIS) / bucketMillis * bucketMillis;
+        val done = meta(COMPACTED);
+        val starts = new ArrayList<Long>();
+        try (val query = connection.prepareStatement(
+                "SELECT DISTINCT time / ?1 * ?1 FROM event WHERE time >= ?2 AND time < ?3 ORDER BY 1")) {
+            query.setLong(1, bucketMillis);
+            query.setLong(2, done);
+            query.setLong(3, settled);
+            try (val result = query.executeQuery()) {
+                while (result.next()) {
+                    starts.add(result.getLong(1));
+                }
+            }
+        }
+        for (val start : starts) {
+            compactBucket(start, start + bucketMillis);
+        }
+        if (settled > done) {
+            try (val statement = connection.prepareStatement("INSERT OR REPLACE INTO meta VALUES (?, ?)")) {
+                statement.setString(1, COMPACTED);
+                statement.setLong(2, settled);
+                statement.executeUpdate();
+            }
+        }
+    }
+
+    private void compactBucket(long from, long to) throws SQLException {
+        val lastSeq = meta(LAST_SEQ);
+        val rows = new ArrayList<EventRow>();
+        try (val query = connection.prepareStatement(
+                "SELECT " + EVENT_COLUMNS + " FROM event WHERE time >= ?1 AND time < ?2 AND seq <= ?3 ORDER BY seq")) {
+            query.setLong(1, from);
+            query.setLong(2, to);
+            query.setLong(3, lastSeq);
+            try (val result = query.executeQuery()) {
+                while (result.next()) {
+                    rows.add(read(result));
+                }
+            }
+        }
+        val compact = Bucketing.compact(rows);
+        if (compact.equals(rows)) {
+            return;
+        }
+
+        connection.setAutoCommit(false);
+        try (val delete =
+                        connection.prepareStatement("DELETE FROM event WHERE time >= ?1 AND time < ?2 AND seq <= ?3");
+                val insert = connection.prepareStatement(INSERT_EVENT)) {
+            delete.setLong(1, from);
+            delete.setLong(2, to);
+            delete.setLong(3, lastSeq);
+            delete.executeUpdate();
+            for (val row : compact) {
+                bind(insert, row);
+                insert.addBatch();
+            }
+            insert.executeBatch();
+            connection.commit();
+        } catch (SQLException | RuntimeException e) {
+            connection.rollback();
+            throw e;
+        } finally {
+            connection.setAutoCommit(true);
+        }
+    }
+
+    private long meta(String key) throws SQLException {
+        try (val query = connection.prepareStatement("SELECT value FROM meta WHERE key = ?")) {
+            query.setString(1, key);
+            try (val result = query.executeQuery()) {
+                return result.next() ? result.getLong(1) : 0;
+            }
+        }
+    }
+
     private static EventRow read(ResultSet rows) throws SQLException {
         return new EventRow(
                 rows.getLong(1),
@@ -314,11 +409,13 @@ public final class SqliteStore implements ChangeSink {
                 rows.getString(11),
                 rows.getInt(12) == 1,
                 info(rows.getString(13), rows.getString(14)),
-                info(rows.getString(15), rows.getString(16)));
+                info(rows.getString(15), rows.getString(16)),
+                rows.getLong(17),
+                rows.getString(18));
     }
 
-    private static @Nullable HolderInfo info(@Nullable String type, @Nullable String label) {
-        return type == null ? null : new HolderInfo(type, label);
+    private static @Nullable HolderMeta info(@Nullable String type, @Nullable String label) {
+        return type == null ? null : new HolderMeta(type, label, null);
     }
 
     @Override

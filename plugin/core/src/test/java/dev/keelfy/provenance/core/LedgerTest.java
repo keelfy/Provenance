@@ -3,6 +3,13 @@ package dev.keelfy.provenance.core;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 
+import dev.keelfy.provenance.core.analysis.Correlation;
+import dev.keelfy.provenance.core.analysis.Link;
+import dev.keelfy.provenance.core.model.Cause;
+import dev.keelfy.provenance.core.model.Holder;
+import dev.keelfy.provenance.core.model.ItemKey;
+import dev.keelfy.provenance.core.model.OriginId;
+import dev.keelfy.provenance.core.taint.TaintVector;
 import java.util.Map;
 import java.util.UUID;
 import lombok.val;
@@ -19,14 +26,14 @@ class LedgerTest {
     private final UUID aliceId = UUID.randomUUID();
     private final UUID bobId = UUID.randomUUID();
     private final UUID carolId = UUID.randomUUID();
-    private final HolderId alice = HolderId.player(aliceId);
-    private final HolderId bob = HolderId.player(bobId);
-    private final HolderId carol = HolderId.player(carolId);
+    private final Holder alice = Holder.player(aliceId);
+    private final Holder bob = Holder.player(bobId);
+    private final Holder carol = Holder.player(carolId);
     private final OriginId aliceOrigin = OriginId.player(aliceId);
     private final OriginId bobOrigin = OriginId.player(bobId);
     private final OriginId carolOrigin = OriginId.player(carolId);
-    private final HolderId chest = HolderId.block("world", 0, 64, 0);
-    private final HolderId droppedItem = HolderId.entity(UUID.randomUUID());
+    private final Holder chest = Holder.block("world", 0, 64, 0);
+    private final Holder droppedItem = Holder.entity(UUID.randomUUID());
 
     private final Ledger ledger = new Ledger();
     private final Correlation correlation = new Correlation(ledger);

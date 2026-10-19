@@ -1,4 +1,4 @@
-package dev.keelfy.provenance.core;
+package dev.keelfy.provenance.core.model;
 
 import java.util.Objects;
 

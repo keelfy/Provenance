@@ -1,11 +1,11 @@
 package dev.keelfy.provenance.paper.inventory;
 
 import dev.keelfy.provenance.Settings;
-import dev.keelfy.provenance.core.Cause;
-import dev.keelfy.provenance.core.ItemKey;
 import dev.keelfy.provenance.core.Ledger;
-import dev.keelfy.provenance.core.OriginId;
 import dev.keelfy.provenance.core.Settlement;
+import dev.keelfy.provenance.core.model.Cause;
+import dev.keelfy.provenance.core.model.ItemKey;
+import dev.keelfy.provenance.core.model.OriginId;
 import dev.keelfy.provenance.paper.Holders;
 import dev.keelfy.provenance.paper.ItemKeys;
 import dev.keelfy.provenance.paper.Players;
@@ -108,15 +108,14 @@ public final class InventoryReconciler {
 
         switch (target.kind()) {
             case CONTAINER ->
-                Settlement.container(
-                        ledger,
-                        Cause.CONTAINER,
-                        holder,
-                        actual,
-                        target.container(),
-                        target.contents().get(),
-                        Players.mintOrigin(player));
-            case WORKSTATION -> Settlement.workstation(ledger, Cause.CRAFT, holder, actual, Players.mintOrigin(player));
+                new Settlement(ledger, Cause.CONTAINER, Players.mintOrigin(player))
+                        .container(
+                                holder,
+                                actual,
+                                target.container(),
+                                target.contents().get());
+            case WORKSTATION ->
+                new Settlement(ledger, Cause.CRAFT, Players.mintOrigin(player)).workstation(holder, actual);
             case MERCHANT -> ledger.reconcile(Cause.TRADE, holder, actual, OriginId.TRADE);
             case SELF -> ledger.reconcile(Cause.RECONCILE, holder, actual, Players.mintOrigin(player));
         }

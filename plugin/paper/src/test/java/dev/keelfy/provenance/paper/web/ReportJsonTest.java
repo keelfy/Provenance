@@ -3,14 +3,14 @@ package dev.keelfy.provenance.paper.web;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.google.gson.JsonParser;
-import dev.keelfy.provenance.core.Cause;
-import dev.keelfy.provenance.core.Envelope;
-import dev.keelfy.provenance.core.HolderId;
-import dev.keelfy.provenance.core.HolderInfo;
-import dev.keelfy.provenance.core.ItemKey;
-import dev.keelfy.provenance.core.LedgerEvent;
-import dev.keelfy.provenance.core.OriginId;
-import dev.keelfy.provenance.core.TaintVector;
+import dev.keelfy.provenance.core.event.Envelope;
+import dev.keelfy.provenance.core.event.LedgerEvent;
+import dev.keelfy.provenance.core.model.Cause;
+import dev.keelfy.provenance.core.model.Chunk;
+import dev.keelfy.provenance.core.model.Holder;
+import dev.keelfy.provenance.core.model.ItemKey;
+import dev.keelfy.provenance.core.model.OriginId;
+import dev.keelfy.provenance.core.taint.TaintVector;
 import dev.keelfy.provenance.storage.Trace;
 import java.util.List;
 import java.util.Map;
@@ -23,11 +23,11 @@ class ReportJsonTest {
     private static final ItemKey DIAMOND = new ItemKey("minecraft:diamond");
 
     private final UUID aliceId = UUID.randomUUID();
-    private final HolderId alice = HolderId.player(aliceId);
-    private final HolderId chest = HolderId.block("world", 1, 64, 2).described(new HolderInfo("minecraft:chest", null));
-    private final HolderId furnace =
-            HolderId.block("world", 1, 64, 2).described(new HolderInfo("minecraft:furnace", null));
+    private final Holder alice = Holder.player(aliceId);
+    private final Holder chest = Holder.block("world", 1, 64, 2).described("minecraft:chest");
+    private final Holder furnace = Holder.block("world", 1, 64, 2).described("minecraft:furnace");
 
+    @SuppressWarnings("null")
     @Test
     void snapshotCarriesEventsLabelsAndSuspiciousMints() {
         val events = List.of(
@@ -50,7 +50,7 @@ class ReportJsonTest {
                         new Trace(events, true),
                         10_000,
                         5_000,
-                        holder -> holder.isPlayer() ? "Alice" : holder.info().displayName(),
+                        holder -> holder.isPlayer() ? "Alice" : holder.displayName(),
                         origin -> origin.isPlayer() ? "Alice" : origin.key()))
                 .getAsJsonObject();
 
@@ -85,5 +85,31 @@ class ReportJsonTest {
         assertThat(converted.getAsJsonObject("inputs").get("minecraft:diamond").getAsLong())
                 .isEqualTo(3);
         assertThat(converted.has("amount")).isFalse();
+    }
+
+    @SuppressWarnings("null")
+    @Test
+    void mergedEventCarriesItsSpanAndChunk() {
+        val merged = new Envelope(
+                1,
+                1000,
+                5000,
+                Cause.MINE,
+                new LedgerEvent.Minted(alice, DIAMOND, 640, OriginId.player(aliceId)),
+                new Chunk("world", -3, 12));
+        val json = JsonParser.parseString(ReportJson.build(
+                        new ReportJson.Query("history.player", alice, null, 1),
+                        new Trace(List.of(merged), false),
+                        10_000,
+                        5_000,
+                        holder -> "Alice",
+                        origin -> "Alice"))
+                .getAsJsonObject();
+
+        val event = json.getAsJsonArray("events").get(0).getAsJsonObject();
+        assertThat(event.get("until").getAsLong()).isEqualTo(5000);
+        assertThat(event.getAsJsonObject("chunk").get("world").getAsString()).isEqualTo("world");
+        assertThat(event.getAsJsonObject("chunk").get("x").getAsInt()).isEqualTo(-3);
+        assertThat(event.getAsJsonObject("chunk").get("z").getAsInt()).isEqualTo(12);
     }
 }

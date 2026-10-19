@@ -2,6 +2,11 @@ journal:
   # Journal back-to-back hopper moves of one item between the same two blocks as a single event.
   # Cuts the size of the history; the only cost is that /prov history shows one line instead of many.
   merge-automation: true
+  # Events of one kind that happened in the same chunk and the same bucket of this many minutes are stored as one with
+  # the total amount: 100k mined cobblestones or killed zombies become a few lines per hour and chunk instead of
+  # hundreds of thousands. The history shows the span from the first to the last. Buckets are merged once they have
+  # ended; items still lying on the ground are folded away on the way.
+  bucket-minutes: 60
   # Days to keep events that involve a player or create items.
   retention-days: 30
   # Days to keep pure automation (block to block); it dominates volume and matters little for moderation.

@@ -1,4 +1,4 @@
-package dev.keelfy.provenance.core;
+package dev.keelfy.provenance.core.model;
 
 import java.util.Objects;
 import java.util.UUID;
@@ -16,6 +16,8 @@ public record OriginId(String key) {
     public static final OriginId LOOT = new OriginId("env:loot");
     public static final OriginId TRADE = new OriginId("env:trade");
     public static final OriginId CREATIVE = new OriginId("env:creative");
+    /** Items the world dropped on its own: washed-away flowers, decayed leaves, explosions. */
+    public static final OriginId WORLD = new OriginId("env:world");
     /** Items that predate tracking or appeared through an unmodelled path. */
     public static final OriginId UNKNOWN = new OriginId("env:unknown");
     /** Aggregated tail removed by top-K pruning. */

@@ -91,7 +91,8 @@ Creative-игрок минтит `CREATIVE` вместо `UNKNOWN`.
 ### История (event sourcing, для модерации: дюпы и кражи)
 
 - Источник правды — журнал событий `LedgerEvent` (`Minted`, `Transferred`, `Burned`, `Converted`, `Cleared`);
-  `Pool`/`FlowGraph` — проекция. Состояние меняет только `LedgerState.apply(event)`: и вживую, и при replay.
+  `Pool`/`FlowGraph` — проекции (`PoolProjection`, `FlowProjection`). Состояние меняет только `LedgerState.apply(event)`:
+  и вживую, и при replay.
   Составные операции разворачиваются в простые: недостача при `transfer` = `Transferred(moved)` + `Minted(UNKNOWN)`,
   `reconcile` = `Minted`/`Burned`, `transferAll` = N `Transferred`; `Converted` хранит входы/выходы по порядку ключей.
 - Команды `Ledger` принимают `Cause` (mine, kill, loot, pickup, drop, container, craft, hopper, smelt, trade, reconcile)
@@ -102,9 +103,16 @@ Creative-игрок минтит `CREATIVE` вместо `UNKNOWN`.
 - Хранение (по умолчанию): события с игроком и любые `Minted` — 30 дней, чистая автоматика (блок ↔ блок) — 3 дня;
   чистка раз в сутки на потоке записи. Сроки и периоды задаются в `config.yml` (`Settings`), там же радиусы
   атрибуции и размеры выдачи команд. Пересборка с нуля не поддерживается. Схема v2 без миграции: старая БД сбрасывается.
-- Подряд идущие `Transferred` блок ↔ блок с одной причиной, парой холдеров и предметом (тикающая воронка) `Ledger`
+- Подряд идущие `Transferred` блок ↔ блок с одной причиной, парой холдеров и предметом (тикающая воронка) `Journal`
   склеивает в одно событие, пока оно не ушло в запись: `seq` остаётся сплошным, `time` берётся от первого.
   Включено по умолчанию, отключается `journal.merge-automation: false` в `config.yml`.
+- Бакеты (`journal.bucket-minutes`, по умолчанию 60): когда бакет закончился (+10 мин на опоздавшие предметы), `SqliteStore.compact`
+  (поток записи, раз в бакет) складывает в одну строку события, равные во всём, кроме времени и количества
+  (`Bucketing`): `seq` и `time` от первого, `until` — время последнего. Место события — `chunk` (`world:x:z`, колонка
+  16×16): у блока из координат id, у сущности из `HolderInfo.chunk` на момент события; события разных чанков не
+  склеиваются. Убитые существа (причина `kill`) схлопываются в один холдер `mob:<тип>@<чанк>#<убийца>`: ферма — одна строка, а истории двух игроков в одном чанке не пересекаются. Перед этим выпавшие стеки сворачиваются, как в вебе: «добыто → предмет →
+  игрок» становится «добыто → игрок». Трогаются только события с `seq <= last_seq` (уже в снимке), поэтому replay и
+  состояние не меняются. Стек, подобранный в следующем бакете, остаётся сырым и сворачивается в вебе.
 - Запрос истории идёт на потоке записи после `flush()`, поэтому видит всё записанное до него.
 
 ## 5. Команды (Brigadier, `LifecycleEvents.COMMANDS`)
@@ -125,8 +133,14 @@ Creative-игрок минтит `CREATIVE` вместо `UNKNOWN`.
 ```
 Gradle-модули: `core` → `storage` → `paper` (плагин собирается в один jar).
 
-core/      TaintVector, OriginId, HolderId, ItemKey, Pool, Ledger, FlowGraph, Correlation,
-           Settlement (diff → transfer/convert), LedgerChanges (снимок для записи)
+core/          Ledger (команды → события; читается через LedgerView), Journal (seq, часы, склейка автоматики),
+               LedgerState → Projection: PoolProjection, FlowProjection (+ Pool, FlowGraph),
+               Settlement (diff → transfer/convert), LedgerChanges (снимок для записи)
+core/model/    Holder (HolderId + HolderMeta), BlockPos, Kind, OriginId, ItemKey, Cause, Chunk — значения без зависимостей
+core/taint/    TaintVector (зависит от model)
+core/event/    LedgerEvent, Envelope (зависят от model, taint)
+core/analysis/ Correlation, Link — только чтение Ledger
+               Зависимости строго вниз: analysis → core → event → taint → model
 storage/   SqliteStore (ChangeSink), WriteBehind, VectorCodec — чистый JDBC, без Bukkit
 paper/     Holders, ItemKeys, Players, ViewKind/ViewTarget, SpawnContexts/SpawnSource,
            listener/{Inventory, ItemEntity, World, Automation, Showcase}Listener,

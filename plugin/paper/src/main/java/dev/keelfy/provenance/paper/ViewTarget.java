@@ -1,7 +1,7 @@
 package dev.keelfy.provenance.paper;
 
-import dev.keelfy.provenance.core.HolderId;
-import dev.keelfy.provenance.core.ItemKey;
+import dev.keelfy.provenance.core.model.Holder;
+import dev.keelfy.provenance.core.model.ItemKey;
 import java.util.Map;
 import java.util.function.Supplier;
 import lombok.val;
@@ -14,10 +14,10 @@ import org.jspecify.annotations.Nullable;
  *
  * @author keelfy
  */
-public record ViewTarget(ViewKind kind, @Nullable HolderId container, Supplier<Map<ItemKey, Long>> contents) {
+public record ViewTarget(ViewKind kind, @Nullable Holder container, Supplier<Map<ItemKey, Long>> contents) {
 
     /** Something that keeps items but has no view, e.g. a jukebox or an item frame. */
-    public static ViewTarget container(@Nullable HolderId holder, Supplier<Map<ItemKey, Long>> contents) {
+    public static ViewTarget container(@Nullable Holder holder, Supplier<Map<ItemKey, Long>> contents) {
         return new ViewTarget(ViewKind.CONTAINER, holder, contents);
     }
 

@@ -1,9 +1,9 @@
 package dev.keelfy.provenance.paper.command;
 
-import dev.keelfy.provenance.core.Envelope;
-import dev.keelfy.provenance.core.ItemKey;
-import dev.keelfy.provenance.core.LedgerEvent;
-import dev.keelfy.provenance.core.OriginId;
+import dev.keelfy.provenance.core.event.Envelope;
+import dev.keelfy.provenance.core.event.LedgerEvent;
+import dev.keelfy.provenance.core.model.ItemKey;
+import dev.keelfy.provenance.core.model.OriginId;
 import java.util.Map;
 import java.util.stream.Collectors;
 import lombok.experimental.UtilityClass;

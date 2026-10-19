@@ -1,10 +1,13 @@
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react"
-import { Flame, Box, User, Sparkles, CircleHelp } from "lucide-react"
+import { Flame, Box, User, Sparkles, CircleHelp, PawPrint, ChevronsDownUp, ChevronsUpDown } from "lucide-react"
 import type { GraphNode } from "@/lib/graph"
 import { cn } from "@/lib/utils"
 import { NODE_H, NODE_W } from "./layout"
 
-export type BoardNode = Node<{ node: GraphNode; selected: boolean }, "holder" | "origin" | "sink">
+export type BoardNode = Node<
+  { node: GraphNode; selected: boolean; /** Folds or unfolds the group this node is part of */ onToggle?: () => void },
+  "holder" | "origin" | "sink"
+>
 
 const handle = "!size-1 !border-0 !bg-transparent"
 const SIDES = [
@@ -22,10 +25,10 @@ function Ports() {
   ])
 }
 
-const HOLDER_ICON: Record<string, typeof User> = { PLAYER: User, BLOCK: Box }
+const HOLDER_ICON: Record<string, typeof User> = { PLAYER: User, BLOCK: Box, ENTITY: PawPrint }
 
 /** Players are pills, everything else is a plate. The root of the report is filled. */
-export function HolderNode({ data: { node, selected } }: NodeProps<BoardNode>) {
+export function HolderNode({ data: { node, selected, onToggle } }: NodeProps<BoardNode>) {
   const Icon = HOLDER_ICON[node.holderKind ?? ""] ?? CircleHelp
   return (
     <div
@@ -33,6 +36,8 @@ export function HolderNode({ data: { node, selected } }: NodeProps<BoardNode>) {
       className={cn(
         "flex items-center gap-2.5 border-[1.5px] px-4 font-heading text-base font-semibold transition-shadow",
         node.holderKind === "PLAYER" ? "rounded-full" : "rounded-md",
+        // a stack of plates: there is more than one creature behind this
+        node.folded && "shadow-[5px_5px_0_-1.5px_var(--color-card),5px_5px_0_0_var(--color-ink)]",
         node.root ? "border-ink bg-ink text-card" : "border-ink bg-card text-ink",
         node.suspicious && !node.root && "border-redstone",
         selected && "ring-3 ring-lapis ring-offset-2 ring-offset-background",
@@ -40,11 +45,15 @@ export function HolderNode({ data: { node, selected } }: NodeProps<BoardNode>) {
     >
       <Icon className="size-4 shrink-0 opacity-70" aria-hidden />
       <span className="flex min-w-0 flex-col leading-tight" title={`${node.label}\n${node.id}`}>
+        {node.killedBy ? (
+          <span className="truncate text-xs font-normal opacity-60">Killed by {node.killedBy}</span>
+        ) : null}
         <span className="truncate">{node.label}</span>
         {node.holderKind !== "PLAYER" ? (
           <span className="truncate text-xs font-normal opacity-60">{node.type ? `${node.type} · ${node.detail}` : node.detail}</span>
         ) : null}
       </span>
+      {onToggle ? <GroupToggle node={node} onToggle={onToggle} /> : null}
       {node.notes > 0 && (
         <span className="ml-auto rounded-full bg-copper px-1.5 text-xs text-card" title="Conversions and clears">
           {node.notes}
@@ -52,6 +61,28 @@ export function HolderNode({ data: { node, selected } }: NodeProps<BoardNode>) {
       )}
       <Ports />
     </div>
+  )
+}
+
+/** The folded plate opens up into its creatures; each of them folds the group back. */
+function GroupToggle({ node, onToggle }: { node: GraphNode; onToggle: () => void }) {
+  const Chevrons = node.folded ? ChevronsUpDown : ChevronsDownUp
+  return (
+    <button
+      type="button"
+      title={node.folded ? `Show the ${node.folded} entries separately` : "Fold the group back into one"}
+      aria-label={node.folded ? `Expand ${node.label}` : `Fold ${node.label}`}
+      onClick={(event) => {
+        event.stopPropagation()
+        onToggle()
+      }}
+      className={cn(
+        "nodrag nopan ml-auto flex shrink-0 items-center rounded-full p-1 hover:bg-ink/10 focus-visible:ring-2 focus-visible:ring-lapis focus-visible:outline-none",
+        node.root && "hover:bg-card/20",
+      )}
+    >
+      <Chevrons className="size-3.5" aria-hidden />
+    </button>
   )
 }
 

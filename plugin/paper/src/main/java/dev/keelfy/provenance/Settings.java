@@ -13,6 +13,7 @@ import org.bukkit.configuration.ConfigurationSection;
 public record Settings(
         boolean mergeAutomation,
         Retention retention,
+        Duration bucket,
         long flushTicks,
         long pruneTicks,
         Duration shutdownTimeout,
@@ -45,6 +46,7 @@ public record Settings(
                 new Retention(
                         Duration.ofDays(whole(config, "journal.retention-days")),
                         Duration.ofDays(whole(config, "journal.automation-retention-days"))),
+                Duration.ofMinutes(whole(config, "journal.bucket-minutes")),
                 whole(config, "storage.flush-interval-seconds") * seconds,
                 whole(config, "storage.prune-interval-hours") * hours,
                 Duration.ofSeconds(whole(config, "storage.shutdown-timeout-seconds")),

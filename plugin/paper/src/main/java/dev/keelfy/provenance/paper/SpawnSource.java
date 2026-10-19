@@ -1,10 +1,10 @@
 package dev.keelfy.provenance.paper;
 
-import dev.keelfy.provenance.core.Cause;
-import dev.keelfy.provenance.core.HolderId;
-import dev.keelfy.provenance.core.ItemKey;
 import dev.keelfy.provenance.core.Ledger;
-import dev.keelfy.provenance.core.OriginId;
+import dev.keelfy.provenance.core.model.Cause;
+import dev.keelfy.provenance.core.model.Holder;
+import dev.keelfy.provenance.core.model.ItemKey;
+import dev.keelfy.provenance.core.model.OriginId;
 import lombok.val;
 import org.jspecify.annotations.Nullable;
 
@@ -14,10 +14,10 @@ import org.jspecify.annotations.Nullable;
  *
  * @author keelfy
  */
-public record SpawnSource(@Nullable HolderId from, OriginId fallback, Cause cause) {
+public record SpawnSource(@Nullable Holder from, OriginId fallback, Cause cause) {
 
     @SuppressWarnings("null")
-    public void apply(Ledger ledger, HolderId target, ItemKey item, long amount) {
+    public void apply(Ledger ledger, Holder target, ItemKey item, long amount) {
         val moved = from == null ? 0 : Math.min(amount, ledger.getCount(from, item));
         if (moved > 0) {
             ledger.transfer(cause, from, target, item, moved);

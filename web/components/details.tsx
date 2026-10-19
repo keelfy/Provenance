@@ -1,9 +1,10 @@
 import { useMemo } from "react"
-import { ArrowRight } from "lucide-react"
+import { ArrowRight, ChevronsDownUp, ChevronsUpDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import type { Selection } from "@/components/board/board"
 import { EventRow } from "@/components/event-row"
+import { GroupMembers } from "@/components/group-members"
 import type { Graph } from "@/lib/graph"
 import { holderDetail, itemName } from "@/lib/format"
 import { holderNames } from "@/lib/graph"
@@ -14,9 +15,12 @@ type Props = {
   graph: Graph
   selection: Selection
   onSelect: (selection: Selection) => void
+  onToggle: (group: string) => void
+  /** Open a group and select one of its entries */
+  onReveal: (group: string, member: string) => void
 }
 
-export function Details({ report, graph, selection, onSelect }: Props) {
+export function Details({ report, graph, selection, onSelect, onToggle, onReveal }: Props) {
   const label = useMemo(() => holderNames(report), [report])
   const node = selection?.kind === "node" ? graph.nodes.find((n) => n.id === selection.id) : undefined
   const edge = selection?.kind === "edge" ? graph.edges.find((e) => e.id === selection.id) : undefined
@@ -24,10 +28,18 @@ export function Details({ report, graph, selection, onSelect }: Props) {
   let title = "All events"
   let subtitle: string | null = null
   let events: ReportEvent[] = graph.events
+  // A plate of creatures, or one creature of an expanded group
+  const plate = node?.folded ? graph.groups.get(node.id) : undefined
+  const siblings = node?.group ? graph.groups.get(node.group) : undefined
   if (node) {
-    title = node.kind === "holder" ? label(node.id) : node.label
-    subtitle = node.kind === "holder" ? [node.type, holderDetail(node.id, true)].filter(Boolean).join(" · ") : null
     events = graph.byNode.get(node.id) ?? []
+    if (plate) {
+      title = node.label
+      subtitle = `${plate.members.length} entries`
+    } else {
+      title = node.kind === "holder" ? label(node.id) : node.label
+      subtitle = node.kind === "holder" ? [node.type, holderDetail(node.id, true)].filter(Boolean).join(" · ") : null
+    }
   } else if (edge) {
     const name = (id: string) => (id in report.holders ? label(id) : (graph.nodes.find((n) => n.id === id)?.label ?? id))
     title = `${name(edge.source)} → ${name(edge.target)}`
@@ -53,6 +65,24 @@ export function Details({ report, graph, selection, onSelect }: Props) {
             Show all events
           </Button>
         ) : null}
+        {plate ? (
+          <Button variant="outline" size="sm" className="mt-2 ml-2" onClick={() => onToggle(plate.id)}>
+            <ChevronsUpDown aria-hidden /> Show separately
+          </Button>
+        ) : null}
+        {siblings ? (
+          <Button
+            variant="outline"
+            size="sm"
+            className="mt-2 ml-2"
+            onClick={() => {
+              onToggle(siblings.id)
+              onSelect({ kind: "node", id: siblings.id })
+            }}
+          >
+            <ChevronsDownUp aria-hidden /> Fold {siblings.label}
+          </Button>
+        ) : null}
       </header>
 
       <ScrollArea className="min-h-0 flex-1">
@@ -71,7 +101,7 @@ export function Details({ report, graph, selection, onSelect }: Props) {
                     variant="outline"
                     size="sm"
                     className="h-auto w-full justify-between py-1.5 text-left whitespace-normal"
-                    onClick={() => onSelect({ kind: "node", id: event.holder })}
+                    onClick={() => onSelect({ kind: "node", id: graph.folded.get(event.holder) ?? event.holder })}
                   >
                     {event.type === "MINTED" ? `${event.amount} × ${itemName(event.item)} in ${label(event.holder)}` : label(event.holder)}
                     <ArrowRight aria-hidden />
@@ -81,6 +111,8 @@ export function Details({ report, graph, selection, onSelect }: Props) {
             </ul>
           </section>
         ) : null}
+
+        {plate ? <GroupMembers group={plate} onPick={(member) => onReveal(plate.id, member)} /> : null}
 
         {events.length === 0 ? (
           <p className="p-4 text-sm text-muted-foreground">No events match the current filters.</p>

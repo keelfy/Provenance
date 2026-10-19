@@ -1,7 +1,7 @@
 package dev.keelfy.provenance.paper;
 
-import dev.keelfy.provenance.core.ItemKey;
-import dev.keelfy.provenance.core.OriginId;
+import dev.keelfy.provenance.core.model.ItemKey;
+import dev.keelfy.provenance.core.model.OriginId;
 import java.util.HashMap;
 import java.util.Map;
 import lombok.experimental.UtilityClass;

@@ -3,16 +3,16 @@ package dev.keelfy.provenance.storage;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.offset;
 
-import dev.keelfy.provenance.core.Cause;
-import dev.keelfy.provenance.core.Envelope;
-import dev.keelfy.provenance.core.HolderId;
-import dev.keelfy.provenance.core.HolderInfo;
-import dev.keelfy.provenance.core.ItemKey;
 import dev.keelfy.provenance.core.Ledger;
 import dev.keelfy.provenance.core.LedgerChanges;
-import dev.keelfy.provenance.core.LedgerEvent;
-import dev.keelfy.provenance.core.OriginId;
-import dev.keelfy.provenance.core.TaintVector;
+import dev.keelfy.provenance.core.event.Envelope;
+import dev.keelfy.provenance.core.event.LedgerEvent;
+import dev.keelfy.provenance.core.model.Cause;
+import dev.keelfy.provenance.core.model.Chunk;
+import dev.keelfy.provenance.core.model.Holder;
+import dev.keelfy.provenance.core.model.ItemKey;
+import dev.keelfy.provenance.core.model.OriginId;
+import dev.keelfy.provenance.core.taint.TaintVector;
 import java.nio.file.Path;
 import java.sql.DriverManager;
 import java.time.Duration;
@@ -31,14 +31,15 @@ class SqliteStoreTest {
 
     private static final Cause CAUSE = Cause.CONTAINER;
     private static final Retention RETENTION = new Retention(Duration.ofDays(30), Duration.ofDays(3));
+    private static final Duration BUCKET = Duration.ofHours(1);
     private static final ItemKey DIAMOND = new ItemKey("minecraft:diamond");
 
     @TempDir
     Path dir;
 
     private final OriginId alice = OriginId.player(UUID.randomUUID());
-    private final HolderId bob = HolderId.player(UUID.randomUUID());
-    private final HolderId chest = HolderId.block("world", 1, 64, 2);
+    private final Holder bob = Holder.player(UUID.randomUUID());
+    private final Holder chest = Holder.block("world", 1, 64, 2);
 
     @Test
     void roundTripKeepsPoolsVectorsAndFlows() throws Exception {
@@ -47,12 +48,12 @@ class SqliteStoreTest {
         ledger.mint(CAUSE, chest, DIAMOND, 10, OriginId.MOB);
         ledger.transfer(CAUSE, chest, bob, DIAMOND, 5);
 
-        try (val store = new SqliteStore(dir.resolve("a.db"), RETENTION)) {
+        try (val store = new SqliteStore(dir.resolve("a.db"), RETENTION, BUCKET)) {
             store.write(ledger.drainChanges());
         }
 
         val restored = new Ledger();
-        try (val store = new SqliteStore(dir.resolve("a.db"), RETENTION)) {
+        try (val store = new SqliteStore(dir.resolve("a.db"), RETENTION, BUCKET)) {
             store.load(restored);
         }
 
@@ -69,7 +70,7 @@ class SqliteStoreTest {
         val ledger = new Ledger();
         ledger.mint(CAUSE, chest, DIAMOND, 3, alice);
 
-        try (val store = new SqliteStore(dir.resolve("b.db"), RETENTION)) {
+        try (val store = new SqliteStore(dir.resolve("b.db"), RETENTION, BUCKET)) {
             store.write(ledger.drainChanges());
             ledger.clear(CAUSE, chest);
             store.write(ledger.drainChanges());
@@ -107,17 +108,20 @@ class SqliteStoreTest {
             }
 
             @Override
-            public List<Envelope> history(HolderId holder, ItemKey item, int limit) {
+            public List<Envelope> history(Holder holder, ItemKey item, int limit) {
                 return List.of();
             }
 
             @Override
-            public Trace trace(HolderId root, ItemKey item, long since, int depth, int limit) {
+            public Trace trace(Holder root, ItemKey item, long since, int depth, int limit) {
                 return new Trace(List.of(), false);
             }
 
             @Override
             public void prune(long now) {}
+
+            @Override
+            public void compact(long now) {}
 
             @Override
             public void close() {}
@@ -144,14 +148,14 @@ class SqliteStoreTest {
         ledger.transfer(CAUSE, chest, bob, DIAMOND, 4);
         val tail = ledger.drainChanges();
 
-        try (val store = new SqliteStore(dir.resolve("c.db"), RETENTION)) {
+        try (val store = new SqliteStore(dir.resolve("c.db"), RETENTION, BUCKET)) {
             store.write(head);
             // Simulates a crash between journal and snapshot: only the events of the tail reach the journal.
             store.write(new LedgerChanges(Map.of(), List.of(), tail.events(), head.lastSeq()));
         }
 
         val restored = new Ledger();
-        try (val store = new SqliteStore(dir.resolve("c.db"), RETENTION)) {
+        try (val store = new SqliteStore(dir.resolve("c.db"), RETENTION, BUCKET)) {
             store.load(restored);
         }
 
@@ -175,7 +179,7 @@ class SqliteStoreTest {
         ledger.convert(Cause.CRAFT, bob, Map.of(DIAMOND, 3L, stick, 2L), Map.of(pickaxe, 1L));
         ledger.transfer(CAUSE, bob, chest, DIAMOND, 2);
 
-        try (val store = new SqliteStore(dir.resolve("d.db"), RETENTION)) {
+        try (val store = new SqliteStore(dir.resolve("d.db"), RETENTION, BUCKET)) {
             store.write(ledger.drainChanges());
 
             assertThat(store.history(bob, null, 10)).extracting(Envelope::seq).containsExactly(4L, 3L, 2L, 1L);
@@ -198,8 +202,8 @@ class SqliteStoreTest {
 
     @Test
     void traceFollowsHoldersUpToDepthLimitAndItem() throws Exception {
-        val carol = HolderId.player(UUID.randomUUID());
-        val dave = HolderId.player(UUID.randomUUID());
+        val carol = Holder.player(UUID.randomUUID());
+        val dave = Holder.player(UUID.randomUUID());
         val stick = new ItemKey("minecraft:stick");
         val clock = new AtomicLong(1000);
         val ledger = new Ledger(clock::get);
@@ -210,7 +214,7 @@ class SqliteStoreTest {
         ledger.transfer(CAUSE, carol, dave, DIAMOND, 1); // 5
         ledger.mint(Cause.LOOT, chest, stick, 2, OriginId.LOOT); // 6
 
-        try (val store = new SqliteStore(dir.resolve("g.db"), RETENTION)) {
+        try (val store = new SqliteStore(dir.resolve("g.db"), RETENTION, BUCKET)) {
             store.write(ledger.drainChanges());
 
             // Hop 1: bob's own events; hop 2 adds the chest's; carol and dave stay out of reach.
@@ -248,15 +252,14 @@ class SqliteStoreTest {
 
     @Test
     void traceWalksThroughDroppedItemsWithoutSpendingDepth() throws Exception {
-        val info = new HolderInfo("minecraft:item", null);
-        val first = HolderId.entity(UUID.randomUUID()).described(info);
-        val second = HolderId.entity(UUID.randomUUID()).described(info);
+        val first = Holder.entity(UUID.randomUUID()).described("minecraft:item");
+        val second = Holder.entity(UUID.randomUUID()).described("minecraft:item");
         val ledger = new Ledger();
         ledger.mint(Cause.MINE, first, DIAMOND, 1, bob.asPlayerOrigin()); // 1
         ledger.transfer(Cause.DROP, first, second, DIAMOND, 1); // 2: the stacks merge
         ledger.transfer(Cause.PICKUP, second, bob, DIAMOND, 1); // 3
 
-        try (val store = new SqliteStore(dir.resolve("m.db"), RETENTION)) {
+        try (val store = new SqliteStore(dir.resolve("m.db"), RETENTION, BUCKET)) {
             store.write(ledger.drainChanges());
 
             assertThat(store.trace(bob, null, 0, 1, 100).events())
@@ -268,32 +271,29 @@ class SqliteStoreTest {
     @Test
     void eachEventKeepsTheTypeAndNameHoldersHadAtTheTime() throws Exception {
         val ledger = new Ledger();
-        val oldChest = chest.described(new HolderInfo("minecraft:chest", null));
-        val furnace = chest.described(new HolderInfo("minecraft:furnace", null));
-        val villager = HolderId.entity(UUID.randomUUID()).described(new HolderInfo("minecraft:villager", "Bob"));
+        val oldChest = chest.described("minecraft:chest");
+        val furnace = chest.described("minecraft:furnace");
+        val villager = Holder.entity(UUID.randomUUID()).described("minecraft:villager", "Bob");
         ledger.mint(CAUSE, oldChest, DIAMOND, 10, alice);
         ledger.transfer(CAUSE, oldChest, villager, DIAMOND, 4);
         ledger.mint(CAUSE, furnace, DIAMOND, 1, alice);
 
-        try (val store = new SqliteStore(dir.resolve("l.db"), RETENTION)) {
+        try (val store = new SqliteStore(dir.resolve("l.db"), RETENTION, BUCKET)) {
             store.write(ledger.drainChanges());
             val events = store.trace(chest, null, 0, 2, 10).events();
 
             assertThat(events)
-                    .extracting(e -> e.event().holder().info())
-                    .containsExactly(
-                            new HolderInfo("minecraft:chest", null),
-                            new HolderInfo("minecraft:chest", null),
-                            new HolderInfo("minecraft:furnace", null));
+                    .extracting(e -> e.event().holder().type())
+                    .containsExactly("minecraft:chest", "minecraft:chest", "minecraft:furnace");
             val transfer = (LedgerEvent.Transferred) events.get(1).event();
-            assertThat(transfer.to().info()).isEqualTo(new HolderInfo("minecraft:villager", "Bob"));
-            assertThat(transfer.to().info().displayName()).isEqualTo("Bob");
+            assertThat(transfer.to().type()).isEqualTo("minecraft:villager");
+            assertThat(transfer.to().displayName()).isEqualTo("Bob");
         }
     }
 
     @Test
     void pruneDropsAutomationEarlierThanEventsInvolvingPlayers() throws Exception {
-        val hopperTarget = HolderId.block("world", 5, 64, 5);
+        val hopperTarget = Holder.block("world", 5, 64, 5);
         val day = TimeUnit.DAYS.toMillis(1);
         val now = 100 * day;
         val clock = new AtomicLong(now - 10 * day);
@@ -303,7 +303,7 @@ class SqliteStoreTest {
         ledger.mint(Cause.MINE, chest, DIAMOND, 5, OriginId.UNKNOWN); // minted: durable
         ledger.transfer(Cause.HOPPER, chest, hopperTarget, DIAMOND, 1); // automation, 10 days old
 
-        try (val store = new SqliteStore(dir.resolve("e.db"), RETENTION)) {
+        try (val store = new SqliteStore(dir.resolve("e.db"), RETENTION, BUCKET)) {
             store.write(ledger.drainChanges());
             // Back-to-back moves merge within a batch, so the newer one needs its own.
             clock.set(now - 2 * day);
@@ -313,6 +313,115 @@ class SqliteStoreTest {
 
             assertThat(store.history(chest, null, 10)).extracting(Envelope::seq).containsExactly(4L, 2L);
             assertThat(store.history(bob, null, 10)).extracting(Envelope::seq).containsExactly(1L);
+        }
+    }
+
+    @Test
+    void closedBucketAddsUpSimilarEventsAndFoldsDroppedStacks() throws Exception {
+        val hour = BUCKET.toMillis();
+        val clock = new AtomicLong(10 * hour);
+        val ledger = new Ledger(clock::get);
+        val drops = "minecraft:item";
+        val cobble = new ItemKey("minecraft:cobblestone");
+        for (var i = 0; i < 1000; i++) {
+            clock.addAndGet(1000);
+            val drop = Holder.entity(UUID.randomUUID()).described(drops);
+            ledger.mint(Cause.MINE, drop, cobble, 1, bob.asPlayerOrigin());
+            ledger.transfer(Cause.PICKUP, drop, bob, cobble, 1);
+        }
+        val lying = Holder.entity(UUID.randomUUID()).described(drops);
+        ledger.mint(Cause.MINE, lying, cobble, 3, bob.asPlayerOrigin());
+        ledger.transfer(CAUSE, bob, chest, cobble, 10);
+        ledger.transfer(CAUSE, bob, chest, cobble, 10);
+
+        try (val store = new SqliteStore(dir.resolve("k.db"), RETENTION, BUCKET)) {
+            store.write(ledger.drainChanges());
+
+            // The bucket has not ended yet.
+            store.compact(11 * hour);
+            assertThat(store.history(bob, null, 5000)).hasSize(1002);
+
+            clock.set(13 * hour);
+            ledger.mint(Cause.MINE, bob, cobble, 1, bob.asPlayerOrigin());
+            ledger.mint(Cause.MINE, bob, cobble, 1, bob.asPlayerOrigin());
+            store.write(ledger.drainChanges());
+            store.compact(12 * hour + hour / 2);
+            store.compact(12 * hour + hour / 2);
+
+            val events = store.history(bob, null, 5000);
+            assertThat(events).hasSize(4);
+            assertThat(events.get(2).event())
+                    .isEqualTo(new LedgerEvent.Transferred(bob, chest, cobble, 20, TaintVector.EMPTY));
+            assertThat(events.get(3).event())
+                    .isEqualTo(new LedgerEvent.Minted(bob, cobble, 1000, bob.asPlayerOrigin()));
+            assertThat(events.get(3).seq()).isEqualTo(1);
+            assertThat(events.get(3).time()).isEqualTo(10 * hour + 1000);
+            assertThat(events.get(3).cause()).isEqualTo(Cause.MINE);
+
+            // The stack nobody picked up stays on the ground.
+            assertThat(store.history(lying, null, 10))
+                    .extracting(e -> e.event())
+                    .hasSize(1);
+        }
+
+        val restored = new Ledger();
+        try (val store = new SqliteStore(dir.resolve("k.db"), RETENTION, BUCKET)) {
+            store.load(restored);
+        }
+        assertThat(restored.getCount(bob, cobble)).isEqualTo(982);
+        assertThat(restored.getCount(chest, cobble)).isEqualTo(20);
+    }
+
+    @Test
+    void closedBucketKeepsChunksApartAndCollapsesKilledMobsPerChunk() throws Exception {
+        val hour = BUCKET.toMillis();
+        val clock = new AtomicLong(10 * hour);
+        val ledger = new Ledger(clock::get);
+        val flesh = new ItemKey("minecraft:rotten_flesh");
+        val farm = new Chunk("world", 1, 1);
+        val field = new Chunk("world", -5, 7);
+        for (var i = 0; i < 800; i++) {
+            clock.addAndGet(1000);
+            val chunk = i < 500 ? farm : field;
+            val zombie = Holder.entity(UUID.randomUUID()).described("minecraft:zombie", null, chunk);
+            val drop = Holder.entity(UUID.randomUUID()).described("minecraft:item", null, chunk);
+            ledger.mint(Cause.KILL, zombie, flesh, 1, bob.asPlayerOrigin());
+            ledger.transfer(Cause.KILL, zombie, drop, flesh, 1);
+            ledger.transfer(Cause.PICKUP, drop, bob, flesh, 1);
+        }
+
+        // Another player farming the same chunk must not end up in bob's history.
+        val carol = Holder.player(UUID.randomUUID());
+        for (var i = 0; i < 100; i++) {
+            clock.addAndGet(1000);
+            val zombie = Holder.entity(UUID.randomUUID()).described("minecraft:zombie", null, farm);
+            val drop = Holder.entity(UUID.randomUUID()).described("minecraft:item", null, farm);
+            ledger.mint(Cause.KILL, zombie, flesh, 1, carol.asPlayerOrigin());
+            ledger.transfer(Cause.KILL, zombie, drop, flesh, 1);
+            ledger.transfer(Cause.PICKUP, drop, carol, flesh, 1);
+        }
+
+        try (val store = new SqliteStore(dir.resolve("z.db"), RETENTION, BUCKET)) {
+            store.write(ledger.drainChanges());
+            store.compact(12 * hour);
+
+            val trace = store.trace(bob, null, 0, 2, 100).events();
+            assertThat(trace).hasSize(4);
+            val byChunk = trace.stream()
+                    .filter(e -> e.event() instanceof LedgerEvent.Transferred)
+                    .toList();
+            assertThat(byChunk).extracting(Envelope::chunk).containsExactlyInAnyOrder(farm, field);
+            for (val e : byChunk) {
+                val transfer = (LedgerEvent.Transferred) e.event();
+                assertThat(transfer.holder().id().id()).startsWith("mob:minecraft:zombie@world:");
+                assertThat(transfer.amount()).isEqualTo(e.chunk().equals(farm) ? 500 : 300);
+                assertThat(e.until()).isGreaterThan(e.time());
+            }
+            assertThat(trace.stream()
+                            .filter(e -> e.event() instanceof LedgerEvent.Minted)
+                            .mapToLong(e -> ((LedgerEvent.Minted) e.event()).amount())
+                            .sum())
+                    .isEqualTo(800);
         }
     }
 
@@ -327,7 +436,7 @@ class SqliteStoreTest {
 
         val ledger = new Ledger();
         ledger.mint(CAUSE, chest, DIAMOND, 1, alice);
-        try (val store = new SqliteStore(url, RETENTION)) {
+        try (val store = new SqliteStore(url, RETENTION, BUCKET)) {
             store.write(ledger.drainChanges());
         }
     }

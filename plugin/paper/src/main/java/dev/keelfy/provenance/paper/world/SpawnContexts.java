@@ -1,6 +1,6 @@
 package dev.keelfy.provenance.paper.world;
 
-import dev.keelfy.provenance.core.ItemKey;
+import dev.keelfy.provenance.core.model.ItemKey;
 import dev.keelfy.provenance.paper.SpawnSource;
 import java.util.ArrayList;
 import java.util.List;

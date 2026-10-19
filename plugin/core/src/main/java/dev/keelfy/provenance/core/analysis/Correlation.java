@@ -1,5 +1,8 @@
-package dev.keelfy.provenance.core;
+package dev.keelfy.provenance.core.analysis;
 
+import dev.keelfy.provenance.core.LedgerView;
+import dev.keelfy.provenance.core.Pool;
+import dev.keelfy.provenance.core.model.OriginId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -10,14 +13,14 @@ import lombok.RequiredArgsConstructor;
 import lombok.val;
 
 /**
- * Read-side queries over a {@link Ledger}: wealth attribution {@code W[P][Q]}, similarity and links.
+ * Read-side queries over a {@link LedgerView}: wealth attribution {@code W[P][Q]}, similarity and links.
  *
  * @author keelfy
  */
 @RequiredArgsConstructor
 public final class Correlation {
 
-    private final Ledger ledger;
+    private final LedgerView ledger;
 
     /**
      * Expected item counts held by {@code player} (own inventory plus custody share of containers), by origin. Assumes
@@ -41,8 +44,10 @@ public final class Correlation {
 
     /** Cosine similarity of two players' wealth over player origins only (environment buckets are noise). */
     public double similarity(OriginId a, OriginId b) {
-        val wa = playerOnly(wealth(a));
-        val wb = playerOnly(wealth(b));
+        return similarity(playerOnly(wealth(a)), playerOnly(wealth(b)));
+    }
+
+    private static double similarity(Map<OriginId, Double> wa, Map<OriginId, Double> wb) {
         double dot = 0;
 
         for (val entry : wa.entrySet()) {
@@ -55,16 +60,7 @@ public final class Correlation {
 
     /** Players connected to {@code player} by flows or shared wealth, strongest flow first. */
     public List<Link> links(OriginId player) {
-        val sourceEdges =
-                ledger.getFlows().getEdges().getOrDefault(player, Map.of()).keySet();
-        val candidates = new HashSet<OriginId>(sourceEdges);
-
-        ledger.getFlows().getEdges().forEach((from, targets) -> {
-            if (targets.containsKey(player)) {
-                candidates.add(from);
-            }
-        });
-
+        val candidates = new HashSet<OriginId>(ledger.getFlows().partners(player));
         val playerWealth = playerOnly(wealth(player));
         candidates.addAll(playerWealth.keySet());
         candidates.remove(player);
@@ -73,7 +69,8 @@ public final class Correlation {
         for (val other : candidates) {
             val playerToOther = ledger.getFlows().flow(player, other);
             val otherToPlayer = ledger.getFlows().flow(other, player);
-            links.add(new Link(other, playerToOther, otherToPlayer, similarity(player, other)));
+            links.add(
+                    new Link(other, playerToOther, otherToPlayer, similarity(playerWealth, playerOnly(wealth(other)))));
         }
         links.sort(Comparator.comparingDouble(Link::volume)
                 .thenComparingDouble(Link::similarity)

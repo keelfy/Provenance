@@ -3,10 +3,10 @@ package dev.keelfy.provenance.paper.listener;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import dev.keelfy.provenance.Settings;
-import dev.keelfy.provenance.core.Cause;
-import dev.keelfy.provenance.core.HolderId;
 import dev.keelfy.provenance.core.Ledger;
-import dev.keelfy.provenance.core.OriginId;
+import dev.keelfy.provenance.core.model.Cause;
+import dev.keelfy.provenance.core.model.Holder;
+import dev.keelfy.provenance.core.model.OriginId;
 import dev.keelfy.provenance.paper.Holders;
 import dev.keelfy.provenance.paper.ItemKeys;
 import dev.keelfy.provenance.paper.Players;
@@ -65,12 +65,12 @@ public final class WorldListener implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onBlockExplode(BlockExplodeEvent event) {
-        event.blockList().forEach(block -> containerDestroyed(block, OriginId.UNKNOWN));
+        event.blockList().forEach(block -> containerDestroyed(block, OriginId.WORLD));
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onEntityExplode(EntityExplodeEvent event) {
-        event.blockList().forEach(block -> containerDestroyed(block, OriginId.UNKNOWN));
+        event.blockList().forEach(block -> containerDestroyed(block, OriginId.WORLD));
     }
 
     /** Mined drops belong to the miner; container contents spilled by the same break keep their history. */
@@ -177,10 +177,13 @@ public final class WorldListener implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onItemSpawn(ItemSpawnEvent event) {
-        val source =
-                contexts.find(event.getLocation(), ItemKeys.of(event.getEntity().getItemStack()));
+        val item = event.getEntity();
+        val source = contexts.find(event.getLocation(), ItemKeys.of(item.getItemStack()));
         if (source != null) {
-            spawn(event.getEntity(), source);
+            spawn(item, source);
+        } else if (item.getThrower() == null) {
+            // Nobody threw it and nothing modelled dropped it: the world did (water, decay, explosions, fire).
+            spawn(item, new SpawnSource(null, OriginId.WORLD, Cause.DROP));
         }
     }
 
@@ -232,7 +235,7 @@ public final class WorldListener implements Listener {
         plugin.getServer().getScheduler().runTask(plugin, () -> settleRemains(holder, halves));
     }
 
-    private void settleRemains(HolderId holder, List<Location> halves) {
+    private void settleRemains(Holder holder, List<Location> halves) {
         for (val half : halves) {
             if (half.getBlock().getState(false) instanceof Container survivor) {
                 val id = Holders.of(survivor.getInventory());

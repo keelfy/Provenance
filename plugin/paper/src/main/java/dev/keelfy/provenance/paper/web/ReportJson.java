@@ -3,12 +3,12 @@ package dev.keelfy.provenance.paper.web;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
-import dev.keelfy.provenance.core.Envelope;
-import dev.keelfy.provenance.core.HolderId;
-import dev.keelfy.provenance.core.ItemKey;
-import dev.keelfy.provenance.core.LedgerEvent;
-import dev.keelfy.provenance.core.OriginId;
-import dev.keelfy.provenance.core.TaintVector;
+import dev.keelfy.provenance.core.event.Envelope;
+import dev.keelfy.provenance.core.event.LedgerEvent;
+import dev.keelfy.provenance.core.model.Holder;
+import dev.keelfy.provenance.core.model.ItemKey;
+import dev.keelfy.provenance.core.model.OriginId;
+import dev.keelfy.provenance.core.taint.TaintVector;
 import dev.keelfy.provenance.paper.command.HistoryView;
 import dev.keelfy.provenance.storage.Trace;
 import java.util.LinkedHashMap;
@@ -32,19 +32,18 @@ public class ReportJson {
     private static final Gson GSON = new Gson();
 
     /** What the report answers: {@code kind} is e.g. {@code history.player}. */
-    public record Query(
-            String kind, HolderId root, @Nullable ItemKey item, int depth) {}
+    public record Query(String kind, Holder root, @Nullable ItemKey item, int depth) {}
 
     public String build(
             Query query,
             Trace trace,
             long now,
             long ttlMillis,
-            Function<HolderId, String> holderLabel,
+            Function<Holder, String> holderLabel,
             Function<OriginId, String> originLabel) {
         // Events come oldest first, so the table ends up with what each holder was last; an event that saw it
         // differently says so itself.
-        val holders = new LinkedHashMap<String, HolderId>();
+        val holders = new LinkedHashMap<String, Holder>();
         holders.put(id(query.root()), query.root());
         for (val envelope : trace.events()) {
             register(envelope.event().holder(), holders);
@@ -61,9 +60,9 @@ public class ReportJson {
         holders.forEach((id, holder) -> {
             val entry = new JsonObject();
             entry.addProperty("label", holderLabel.apply(holder));
-            entry.addProperty("kind", holder.kind().name());
-            if (holder.info() != null) {
-                entry.addProperty("type", holder.info().type());
+            entry.addProperty("kind", holder.id().kind().name());
+            if (holder.type() != null) {
+                entry.addProperty("type", holder.type());
             }
             holderTable.add(id, entry);
         });
@@ -89,8 +88,8 @@ public class ReportJson {
 
     private JsonObject event(
             Envelope envelope,
-            Map<String, HolderId> holders,
-            Function<HolderId, String> holderLabel,
+            Map<String, Holder> holders,
+            Function<Holder, String> holderLabel,
             Function<OriginId, String> originLabel) {
         val event = envelope.event();
         val json = new JsonObject();
@@ -100,6 +99,16 @@ public class ReportJson {
         json.addProperty("holder", id(event.holder()));
         asSeen("holderAs", event.holder(), holders, holderLabel, json);
         json.addProperty("suspicious", HistoryView.suspicious(event));
+        if (envelope.until() > envelope.time()) {
+            json.addProperty("until", envelope.until());
+        }
+        if (envelope.chunk() != null) {
+            val chunk = new JsonObject();
+            chunk.addProperty("world", envelope.chunk().world());
+            chunk.addProperty("x", envelope.chunk().x());
+            chunk.addProperty("z", envelope.chunk().z());
+            json.add("chunk", chunk);
+        }
 
         switch (event) {
             case LedgerEvent.Minted e -> {
@@ -134,30 +143,32 @@ public class ReportJson {
     }
 
     /** The newest sighting wins, but one without info does not wipe out one with. */
-    private void register(HolderId holder, Map<String, HolderId> holders) {
-        holders.merge(id(holder), holder, (known, seen) -> seen.info() != null || known.info() == null ? seen : known);
+    private void register(Holder holder, Map<String, Holder> holders) {
+        holders.merge(id(holder), holder, (known, seen) -> seen.type() != null || known.type() == null ? seen : known);
     }
 
     /** Adds {@code key}: what the event saw, when it differs from the holder's entry in the table. */
     private void asSeen(
             String key,
-            HolderId seen,
-            Map<String, HolderId> holders,
-            Function<HolderId, String> holderLabel,
+            Holder seen,
+            Map<String, Holder> holders,
+            Function<Holder, String> holderLabel,
             JsonObject json) {
-        if (Objects.equals(seen.info(), holders.get(id(seen)).info())) {
+
+        if (Objects.equals(seen.type(), holders.get(id(seen)).type())) {
             return;
         }
+
         val as = new JsonObject();
         as.addProperty("label", holderLabel.apply(seen));
-        if (seen.info() != null) {
-            as.addProperty("type", seen.info().type());
+        if (seen.type() != null) {
+            as.addProperty("type", seen.type());
         }
         json.add(key, as);
     }
 
-    private String id(HolderId holder) {
-        return holder.kind().name() + "/" + holder.id();
+    private String id(Holder holder) {
+        return holder.id().key();
     }
 
     /** Origin label to share; origins that share a label add up. */

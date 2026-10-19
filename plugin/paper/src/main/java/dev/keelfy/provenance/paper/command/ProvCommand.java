@@ -11,11 +11,11 @@ import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import com.mojang.brigadier.tree.LiteralCommandNode;
 import dev.keelfy.provenance.ProvenanceStorage;
 import dev.keelfy.provenance.Settings;
-import dev.keelfy.provenance.core.Correlation;
-import dev.keelfy.provenance.core.HolderId;
-import dev.keelfy.provenance.core.ItemKey;
 import dev.keelfy.provenance.core.Ledger;
-import dev.keelfy.provenance.core.OriginId;
+import dev.keelfy.provenance.core.analysis.Correlation;
+import dev.keelfy.provenance.core.model.Holder;
+import dev.keelfy.provenance.core.model.ItemKey;
+import dev.keelfy.provenance.core.model.OriginId;
 import dev.keelfy.provenance.paper.Holders;
 import dev.keelfy.provenance.paper.ItemKeys;
 import dev.keelfy.provenance.paper.inventory.InventoryReconciler;
@@ -155,7 +155,7 @@ public final class ProvCommand {
         if (pools.isEmpty()) {
             return error(player, "Nothing tracked in " + holder.id());
         }
-        reply(player, holder.id());
+        reply(player, holder.id().id());
         pools.entrySet().stream()
                 .sorted(Map.Entry.comparingByValue(Comparator.comparingLong(pool -> -pool.getCount())))
                 .limit(settings.blockRows())
@@ -168,7 +168,7 @@ public final class ProvCommand {
         return 1;
     }
 
-    private @Nullable HolderId lookedAtContainer(Player player) {
+    private @Nullable Holder lookedAtContainer(Player player) {
         val target = player.getTargetBlockExact(settings.blockReach());
         return target != null && target.getState(false) instanceof Container container
                 ? Holders.of(container.getInventory())
@@ -213,11 +213,11 @@ public final class ProvCommand {
         }
 
         val item = hasArgument(context, ITEM_ARG) ? itemArgument(context) : null;
-        return showHistory(sender, HolderId.player(target.playerId()), item);
+        return showHistory(sender, Holder.player(target.playerId()), item);
     }
 
     /** Queries on the writer thread, prints back on the main one. */
-    private int showHistory(CommandSender sender, HolderId holder, @Nullable ItemKey item) {
+    private int showHistory(CommandSender sender, Holder holder, @Nullable ItemKey item) {
         storage.history(holder, item, settings.historyRows())
                 .whenComplete((events, failure) -> onMain(() -> {
                     if (failure != null) {
@@ -255,11 +255,11 @@ public final class ProvCommand {
         }
 
         val item = hasArgument(context, ITEM_ARG) ? itemArgument(context) : null;
-        return publish(sender, "history.player", HolderId.player(target.playerId()), item);
+        return publish(sender, "history.player", Holder.player(target.playerId()), item);
     }
 
     /** Traces on the writer thread, builds the snapshot on the main one (names), uploads off both. */
-    private int publish(CommandSender sender, String kind, HolderId root, @Nullable ItemKey item) {
+    private int publish(CommandSender sender, String kind, Holder root, @Nullable ItemKey item) {
         if (!settings.webEnabled()) {
             return error(sender, "Web viewer is off: set web.endpoint and web.secret in config.yml");
         }
@@ -278,7 +278,7 @@ public final class ProvCommand {
                                 trace,
                                 System.currentTimeMillis(),
                                 TimeUnit.HOURS.toMillis(settings.webTtlHours()),
-                                holder -> Labels.name(holder, holder.info()),
+                                holder -> Labels.name(holder),
                                 Labels::of);
                         publisher
                                 .publish(json)

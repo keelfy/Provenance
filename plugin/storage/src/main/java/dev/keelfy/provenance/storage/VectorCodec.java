@@ -1,7 +1,7 @@
 package dev.keelfy.provenance.storage;
 
-import dev.keelfy.provenance.core.OriginId;
-import dev.keelfy.provenance.core.TaintVector;
+import dev.keelfy.provenance.core.model.OriginId;
+import dev.keelfy.provenance.core.taint.TaintVector;
 import java.util.Locale;
 import java.util.stream.Collectors;
 import lombok.experimental.UtilityClass;

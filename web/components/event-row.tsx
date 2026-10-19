@@ -1,6 +1,6 @@
 import { Fragment, type ReactNode } from "react"
 import { Badge } from "@/components/ui/badge"
-import { formatTime, itemName } from "@/lib/format"
+import { formatChunk, formatSpan, itemName } from "@/lib/format"
 import { createdBy } from "@/lib/graph"
 import type { ReportEvent } from "@/lib/report"
 import { cn } from "@/lib/utils"
@@ -106,7 +106,8 @@ export function EventRow({
     >
       <p className="text-sm leading-relaxed">{describe(event, label)}</p>
       <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-        <span>{formatTime(event.time)}</span>
+        <span>{formatSpan(event.time, event.until)}</span>
+        {event.chunk ? <span>{formatChunk(event.chunk)}</span> : null}
         <span>#{event.seq}</span>
         <Badge variant="outline">{event.cause}</Badge>
         {event.suspicious ? <Badge variant="destructive">suspicious</Badge> : null}

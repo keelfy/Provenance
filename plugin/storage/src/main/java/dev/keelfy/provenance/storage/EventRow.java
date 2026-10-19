@@ -1,13 +1,14 @@
 package dev.keelfy.provenance.storage;
 
-import dev.keelfy.provenance.core.Cause;
-import dev.keelfy.provenance.core.Envelope;
-import dev.keelfy.provenance.core.HolderId;
-import dev.keelfy.provenance.core.HolderInfo;
-import dev.keelfy.provenance.core.ItemKey;
-import dev.keelfy.provenance.core.Kind;
-import dev.keelfy.provenance.core.LedgerEvent;
-import dev.keelfy.provenance.core.OriginId;
+import dev.keelfy.provenance.core.event.Envelope;
+import dev.keelfy.provenance.core.event.LedgerEvent;
+import dev.keelfy.provenance.core.model.Cause;
+import dev.keelfy.provenance.core.model.Chunk;
+import dev.keelfy.provenance.core.model.Holder;
+import dev.keelfy.provenance.core.model.HolderMeta;
+import dev.keelfy.provenance.core.model.ItemKey;
+import dev.keelfy.provenance.core.model.Kind;
+import dev.keelfy.provenance.core.model.OriginId;
 import java.util.Map;
 import java.util.TreeMap;
 import lombok.val;
@@ -18,7 +19,8 @@ import org.jspecify.annotations.Nullable;
  * carries the maps of a conversion as {@code |item=n|item=n|>|item=n|}; item keys never contain {@code | = >}.
  * {@code durable} marks events that involve a player or create items: they outlive plain automation. The type and
  * custom name of a block or entity are stored with each event ({@code holderInfo}, {@code otherInfo}): a block is only
- * coordinates, and what stands there changes.
+ * coordinates, and what stands there changes. {@code chunk} (as {@code world:x:z}) says where it happened and
+ * {@code until} is the time of the last event a compacted row stands for.
  *
  * @author keelfy
  */
@@ -35,8 +37,10 @@ record EventRow(
         @Nullable String custody,
         @Nullable String detail,
         boolean durable,
-        @Nullable HolderInfo holderInfo,
-        @Nullable HolderInfo otherInfo) {
+        @Nullable HolderMeta holderInfo,
+        @Nullable HolderMeta otherInfo,
+        long until,
+        @Nullable String chunk) {
 
     EventRow(
             long seq,
@@ -51,16 +55,21 @@ record EventRow(
             @Nullable String custody,
             @Nullable String detail,
             boolean durable) {
-        this(seq, time, cause, type, holder, other, item, amount, origin, custody, detail, durable, null, null);
+        this(
+                seq, time, cause, type, holder, other, item, amount, origin, custody, detail, durable, null, null, time,
+                null);
     }
 
     static EventRow of(Envelope envelope) {
         val event = envelope.event();
         val other = event instanceof LedgerEvent.Transferred transfer ? transfer.to() : null;
-        return plain(envelope).described(event.holder().info(), other == null ? null : other.info());
+        val place = event.holder().chunk() != null ? event.holder().chunk() : other == null ? null : other.chunk();
+        return plain(envelope)
+                .described(
+                        event.holder().meta(), other == null ? null : other.meta(), place == null ? null : place.key());
     }
 
-    private EventRow described(@Nullable HolderInfo holderInfo, @Nullable HolderInfo otherInfo) {
+    EventRow withAmount(long amount) {
         return new EventRow(
                 seq,
                 time,
@@ -75,7 +84,93 @@ record EventRow(
                 detail,
                 durable,
                 holderInfo,
-                otherInfo);
+                otherInfo,
+                until,
+                chunk);
+    }
+
+    /** The same event as seen from another holder. */
+    EventRow withHolder(String holder, @Nullable HolderMeta holderInfo) {
+        return new EventRow(
+                seq,
+                time,
+                cause,
+                type,
+                holder,
+                other,
+                item,
+                amount,
+                origin,
+                custody,
+                detail,
+                durable,
+                holderInfo,
+                otherInfo,
+                until,
+                chunk);
+    }
+
+    /** A transfer into a stack carried on to whoever {@code pickup} gave it to: one move, at the time of the pickup. */
+    EventRow movedTo(EventRow pickup) {
+        return new EventRow(
+                pickup.seq,
+                pickup.time,
+                cause,
+                type,
+                holder,
+                pickup.other,
+                item,
+                amount,
+                origin,
+                pickup.custody != null ? pickup.custody : custody,
+                detail,
+                durable || pickup.durable,
+                holderInfo,
+                pickup.otherInfo,
+                pickup.time,
+                chunk != null ? chunk : pickup.chunk);
+    }
+
+    /** This and a similar event as one: the amounts add up, the span covers both. */
+    EventRow merged(EventRow similar) {
+        return new EventRow(
+                Math.min(seq, similar.seq),
+                Math.min(time, similar.time),
+                cause,
+                type,
+                holder,
+                other,
+                item,
+                amount + similar.amount,
+                origin,
+                custody,
+                detail,
+                durable,
+                holderInfo,
+                otherInfo,
+                Math.max(until, similar.until),
+                chunk);
+    }
+
+    private EventRow described(
+            @Nullable HolderMeta holderInfo, @Nullable HolderMeta otherInfo, @Nullable String chunk) {
+        return new EventRow(
+                seq,
+                time,
+                cause,
+                type,
+                holder,
+                other,
+                item,
+                amount,
+                origin,
+                custody,
+                detail,
+                durable,
+                holderInfo,
+                otherInfo,
+                until,
+                chunk);
     }
 
     private static EventRow plain(Envelope envelope) {
@@ -180,16 +275,19 @@ record EventRow(
             case "CLEARED" -> new LedgerEvent.Cleared(holderId);
             default -> throw new IllegalStateException("unknown event type: " + type);
         };
-        return new Envelope(seq, time, new Cause(cause), event);
+        return new Envelope(seq, time, until, new Cause(cause), event, chunk == null ? null : Chunk.parse(chunk));
     }
 
-    static String encode(HolderId holder) {
-        return holder.kind().name() + "/" + holder.id();
+    static String encode(Holder holder) {
+        return holder.id().key();
     }
 
-    private static HolderId decodeHolder(String text, @Nullable HolderInfo info) {
+    private static Holder decodeHolder(String text, @Nullable HolderMeta meta) {
         val split = text.indexOf('/');
-        return new HolderId(Kind.valueOf(text.substring(0, split)), text.substring(split + 1), info);
+        return new Holder(
+                Kind.valueOf(text.substring(0, split)),
+                text.substring(split + 1),
+                meta == null ? HolderMeta.NONE : meta);
     }
 
     private static String encode(Map<ItemKey, Long> items) {

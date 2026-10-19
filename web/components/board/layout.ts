@@ -1,9 +1,9 @@
 import { Graph, layout } from "@dagrejs/dagre"
 import type { Graph as Model, GraphEdge } from "@/lib/graph"
-import { itemName } from "@/lib/format"
+import { stackLabel } from "@/lib/format"
 
 export const NODE_W = 200
-export const NODE_H = 60
+export const NODE_H = 68
 
 const LABEL_H = 26
 /** Rough width of the 12px semibold label plus its padding; dagre reserves this much room for it. */
@@ -11,12 +11,7 @@ const labelWidth = (text: string) => Math.ceil(text.length * 7 + 22)
 
 export type Point = { x: number; y: number }
 
-/** "445 × diamond +9": the largest item and how many others ride along. */
-export function edgeLabel(edge: GraphEdge): string {
-  const [top] = [...edge.items].sort((a, b) => b[1] - a[1])
-  const more = edge.items.size - 1
-  return `${edge.amount} × ${itemName(top[0])}${more > 0 ? ` +${more}` : ""}`
-}
+export const edgeLabel = (edge: GraphEdge) => stackLabel(edge.items)
 
 /**
  * Left-to-right layers: origins on the left, burn on the right. Only the node positions come from dagre (top-left

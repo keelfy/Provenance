@@ -1,9 +1,9 @@
 package dev.keelfy.provenance.storage;
 
-import dev.keelfy.provenance.core.Envelope;
-import dev.keelfy.provenance.core.HolderId;
-import dev.keelfy.provenance.core.ItemKey;
 import dev.keelfy.provenance.core.LedgerChanges;
+import dev.keelfy.provenance.core.event.Envelope;
+import dev.keelfy.provenance.core.model.Holder;
+import dev.keelfy.provenance.core.model.ItemKey;
 import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.Deque;
@@ -49,7 +49,7 @@ public final class WriteBehind implements AutoCloseable {
     }
 
     /** Runs on the writer thread, so it sees every batch submitted before it. */
-    public CompletableFuture<List<Envelope>> history(HolderId holder, @Nullable ItemKey item, int limit) {
+    public CompletableFuture<List<Envelope>> history(Holder holder, @Nullable ItemKey item, int limit) {
         val result = new CompletableFuture<List<Envelope>>();
         executor.execute(() -> {
             try {
@@ -62,7 +62,7 @@ public final class WriteBehind implements AutoCloseable {
     }
 
     /** Same threading as {@link #history}. */
-    public CompletableFuture<Trace> trace(HolderId root, @Nullable ItemKey item, long since, int depth, int limit) {
+    public CompletableFuture<Trace> trace(Holder root, @Nullable ItemKey item, long since, int depth, int limit) {
         val result = new CompletableFuture<Trace>();
         executor.execute(() -> {
             try {
@@ -78,6 +78,16 @@ public final class WriteBehind implements AutoCloseable {
         executor.execute(() -> {
             try {
                 store.prune(now);
+            } catch (Exception e) {
+                onFailure.accept(e);
+            }
+        });
+    }
+
+    public void compact(long now) {
+        executor.execute(() -> {
+            try {
+                store.compact(now);
             } catch (Exception e) {
                 onFailure.accept(e);
             }

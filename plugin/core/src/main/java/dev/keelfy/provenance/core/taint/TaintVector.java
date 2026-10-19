@@ -1,5 +1,6 @@
-package dev.keelfy.provenance.core;
+package dev.keelfy.provenance.core.taint;
 
+import dev.keelfy.provenance.core.model.OriginId;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;

@@ -3,6 +3,11 @@ package dev.keelfy.provenance.core;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 
+import dev.keelfy.provenance.core.model.Cause;
+import dev.keelfy.provenance.core.model.Holder;
+import dev.keelfy.provenance.core.model.ItemKey;
+import dev.keelfy.provenance.core.model.OriginId;
+import dev.keelfy.provenance.core.taint.TaintVector;
 import java.util.Map;
 import java.util.UUID;
 import lombok.val;
@@ -17,16 +22,17 @@ class SettlementTest {
     private static final ItemKey PICKAXE = new ItemKey("minecraft:diamond_pickaxe");
 
     private final UUID aliceId = UUID.randomUUID();
-    private final HolderId alice = HolderId.player(aliceId);
+    private final Holder alice = Holder.player(aliceId);
     private final OriginId aliceOrigin = OriginId.player(aliceId);
-    private final HolderId chest = HolderId.block("world", 1, 64, 1);
+    private final Holder chest = Holder.block("world", 1, 64, 1);
     private final Ledger ledger = new Ledger();
 
     @Test
     void oppositeChangesBecomeTransfers() {
         ledger.mint(CAUSE, alice, DIAMOND, 10, aliceOrigin);
 
-        Settlement.container(ledger, CAUSE, alice, Map.of(DIAMOND, 4L), chest, Map.of(DIAMOND, 6L), OriginId.UNKNOWN);
+        new Settlement(ledger, CAUSE, OriginId.UNKNOWN)
+                .container(alice, Map.of(DIAMOND, 4L), chest, Map.of(DIAMOND, 6L));
 
         assertThat(ledger.getCount(alice, DIAMOND)).isEqualTo(4);
         assertThat(ledger.pool(chest, DIAMOND).getOrigin()).isEqualTo(TaintVector.of(aliceOrigin));
@@ -35,7 +41,7 @@ class SettlementTest {
 
     @Test
     void unmatchedChangesAreReconciledWithGivenOrigin() {
-        Settlement.container(ledger, CAUSE, alice, Map.of(DIAMOND, 3L), chest, Map.of(), OriginId.CREATIVE);
+        new Settlement(ledger, CAUSE, OriginId.CREATIVE).container(alice, Map.of(DIAMOND, 3L), chest, Map.of());
 
         assertThat(ledger.pool(alice, DIAMOND).getOrigin()).isEqualTo(TaintVector.of(OriginId.CREATIVE));
     }
@@ -45,7 +51,7 @@ class SettlementTest {
         ledger.mint(CAUSE, alice, DIAMOND, 3, aliceOrigin);
         ledger.mint(CAUSE, alice, STICK, 2, OriginId.UNKNOWN);
 
-        Settlement.workstation(ledger, CAUSE, alice, Map.of(PICKAXE, 1L), OriginId.UNKNOWN);
+        new Settlement(ledger, CAUSE, OriginId.UNKNOWN).workstation(alice, Map.of(PICKAXE, 1L));
 
         assertThat(ledger.getPools(alice)).containsOnlyKeys(PICKAXE);
         assertThat(ledger.pool(alice, PICKAXE).getOrigin().share(aliceOrigin)).isCloseTo(0.6, within(1e-9));
@@ -53,7 +59,7 @@ class SettlementTest {
 
     @Test
     void workstationOutputWithoutInputIsMintedNotCrafted() {
-        Settlement.workstation(ledger, CAUSE, alice, Map.of(DIAMOND, 3L), OriginId.CREATIVE);
+        new Settlement(ledger, CAUSE, OriginId.CREATIVE).workstation(alice, Map.of(DIAMOND, 3L));
 
         assertThat(ledger.pool(alice, DIAMOND).getOrigin()).isEqualTo(TaintVector.of(OriginId.CREATIVE));
     }
@@ -62,7 +68,7 @@ class SettlementTest {
     void workstationWithoutOutputBurns() {
         ledger.mint(CAUSE, alice, DIAMOND, 3, aliceOrigin);
 
-        Settlement.workstation(ledger, CAUSE, alice, Map.of(DIAMOND, 1L), OriginId.UNKNOWN);
+        new Settlement(ledger, CAUSE, OriginId.UNKNOWN).workstation(alice, Map.of(DIAMOND, 1L));
 
         assertThat(ledger.getCount(alice, DIAMOND)).isEqualTo(1);
     }
@@ -71,7 +77,7 @@ class SettlementTest {
     void transferAllKeepsVectors() {
         ledger.mint(CAUSE, alice, DIAMOND, 4, aliceOrigin);
         ledger.transfer(CAUSE, alice, chest, DIAMOND, 4);
-        val otherHalf = HolderId.block("world", 2, 64, 1);
+        val otherHalf = Holder.block("world", 2, 64, 1);
 
         ledger.transferAll(CAUSE, chest, otherHalf);
 

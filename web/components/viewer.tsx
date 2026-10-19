@@ -1,7 +1,7 @@
 "use client"
 
 import dynamic from "next/dynamic"
-import { useDeferredValue, useEffect, useMemo, useState } from "react"
+import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react"
 import type { Selection } from "@/components/board/board"
 import { Details } from "@/components/details"
 import { Toolbar } from "@/components/toolbar"
@@ -90,11 +90,26 @@ function Workspace({ report: original }: { report: Report }) {
   const report = useMemo(() => foldDrops(original), [original])
   const [filters, setFilters] = useState<Filters>(NO_FILTERS)
   const [selection, setSelection] = useState<Selection>(null)
+  /** Groups of creatures shown one by one, by group id */
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
+
+  const toggle = useCallback((group: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (!next.delete(group)) next.add(group)
+      return next
+    })
+  }, [])
+  // Opens a group and picks one creature of it, from the list in the details
+  const reveal = useCallback((group: string, member: string) => {
+    setExpanded((prev) => new Set(prev).add(group))
+    setSelection({ kind: "node", id: member })
+  }, [])
 
   // Typing in a filter must stay responsive while the graph and layout recompute (`rerender-use-deferred-value`).
   const deferred = useDeferredValue(filters)
   const options = useMemo(() => facets(report), [report])
-  const graph = useMemo(() => buildGraph(report, deferred), [report, deferred])
+  const graph = useMemo(() => buildGraph(report, deferred, expanded), [report, deferred, expanded])
 
   const present =
     selection &&
@@ -108,9 +123,9 @@ function Workspace({ report: original }: { report: Report }) {
       <Toolbar report={original} facets={options} filters={filters} onFilters={setFilters} />
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         <div className="relative min-h-[55vh] flex-1">
-          <Board graph={graph} selection={active} onSelect={setSelection} />
+          <Board graph={graph} selection={active} onSelect={setSelection} onToggle={toggle} />
         </div>
-        <Details report={report} graph={graph} selection={active} onSelect={setSelection} />
+        <Details report={report} graph={graph} selection={active} onSelect={setSelection} onToggle={toggle} onReveal={reveal} />
       </div>
     </div>
   )

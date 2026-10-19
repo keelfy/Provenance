@@ -1,11 +1,10 @@
 package dev.keelfy.provenance.paper;
 
-import dev.keelfy.provenance.core.HolderId;
-import dev.keelfy.provenance.core.HolderInfo;
+import dev.keelfy.provenance.core.model.Chunk;
+import dev.keelfy.provenance.core.model.Holder;
 import io.papermc.paper.block.TileStateInventoryHolder;
 import lombok.experimental.UtilityClass;
 import lombok.val;
-import net.kyori.adventure.key.Key;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Location;
@@ -29,10 +28,10 @@ import org.jspecify.annotations.Nullable;
 @UtilityClass
 public class Holders {
 
-    public @Nullable HolderId of(@Nullable InventoryHolder holder) {
+    public @Nullable Holder of(@Nullable InventoryHolder holder) {
         return switch (holder) {
             case null -> null;
-            case Player player -> HolderId.player(player.getUniqueId());
+            case Player player -> Holder.player(player.getUniqueId());
             case DoubleChest chest -> of(chest.getLeftSide(false));
             case BlockState state -> ofState(state);
             case Entity entity -> of(entity);
@@ -40,14 +39,14 @@ public class Holders {
         };
     }
 
-    public @Nullable HolderId of(Inventory inventory) {
+    public @Nullable Holder of(Inventory inventory) {
         return of(inventory.getHolder(false));
     }
 
     /**
      * Holder of a block that keeps items: containers (a double chest by its left half), jukebox-like blocks, campfires.
      */
-    public @Nullable HolderId tile(BlockState state) {
+    public @Nullable Holder tile(BlockState state) {
         return switch (state) {
             case TileStateInventoryHolder tile -> of(tile.getInventory());
             case Campfire campfire -> of(campfire.getBlock());
@@ -55,37 +54,40 @@ public class Holders {
         };
     }
 
-    public HolderId of(Player player) {
-        return HolderId.player(player.getUniqueId());
+    public Holder of(Player player) {
+        return Holder.player(player.getUniqueId());
     }
 
-    public HolderId of(Entity entity) {
+    public Holder of(Entity entity) {
         if (entity instanceof Player player) {
             return of(player);
         }
-        return HolderId.entity(entity.getUniqueId())
-                .described(info(entity.getType().key(), entity.customName()));
+        val at = entity.getLocation();
+        return Holder.entity(entity.getUniqueId())
+                .described(
+                        entity.getType().key().asString(),
+                        label(entity.customName()),
+                        Chunk.ofBlock(entity.getWorld().getName(), at.getBlockX(), at.getBlockZ()));
     }
 
-    public HolderId of(Block block) {
-        return HolderId.block(block.getWorld().getName(), block.getX(), block.getY(), block.getZ())
-                .described(info(block.getType().key(), null));
+    public Holder of(Block block) {
+        return Holder.block(block.getWorld().getName(), block.getX(), block.getY(), block.getZ())
+                .described(block.getType().key().asString());
     }
 
     /** Same as the block, plus the name given in an anvil if the state has one. */
-    public HolderId ofState(BlockState state) {
-        val block = HolderId.block(state.getWorld().getName(), state.getX(), state.getY(), state.getZ());
+    public Holder ofState(BlockState state) {
+        val block = Holder.block(state.getWorld().getName(), state.getX(), state.getY(), state.getZ());
         return block.described(
-                info(state.getType().key(), state instanceof Nameable nameable ? nameable.customName() : null));
+                state.getType().key().asString(),
+                label(state instanceof Nameable nameable ? nameable.customName() : null));
     }
 
-    public HolderId of(Location location) {
+    public Holder of(Location location) {
         return of(location.getBlock());
     }
 
-    private HolderInfo info(Key type, @Nullable Component customName) {
-        return new HolderInfo(
-                type.asString(),
-                customName != null ? PlainTextComponentSerializer.plainText().serialize(customName) : null);
+    private @Nullable String label(@Nullable Component customName) {
+        return customName != null ? PlainTextComponentSerializer.plainText().serialize(customName) : null;
     }
 }

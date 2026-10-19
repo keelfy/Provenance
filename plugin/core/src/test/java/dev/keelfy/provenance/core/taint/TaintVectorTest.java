@@ -1,8 +1,9 @@
-package dev.keelfy.provenance.core;
+package dev.keelfy.provenance.core.taint;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 
+import dev.keelfy.provenance.core.model.OriginId;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 

@@ -1,15 +1,13 @@
 package dev.keelfy.provenance.paper.command;
 
-import dev.keelfy.provenance.core.HolderId;
-import dev.keelfy.provenance.core.HolderInfo;
-import dev.keelfy.provenance.core.OriginId;
-import dev.keelfy.provenance.core.TaintVector;
+import dev.keelfy.provenance.core.model.Holder;
+import dev.keelfy.provenance.core.model.OriginId;
+import dev.keelfy.provenance.core.taint.TaintVector;
 import java.util.Map;
 import java.util.stream.Collectors;
 import lombok.experimental.UtilityClass;
 import lombok.val;
 import org.bukkit.Bukkit;
-import org.jspecify.annotations.Nullable;
 
 /**
  * Human-readable names for origins and vectors in command output.
@@ -31,11 +29,11 @@ public class Labels {
         return key.startsWith(ENV_PREFIX) ? key.substring(ENV_PREFIX.length()) : key;
     }
 
-    public String of(HolderId holder) {
-        return switch (holder.kind()) {
+    public String of(Holder holder) {
+        return switch (holder.id().kind()) {
             case PLAYER -> of(holder.asPlayerOrigin());
-            case BLOCK -> holder.id().replace(':', ' ');
-            case ENTITY -> "entity " + holder.id().substring(0, 8);
+            case BLOCK -> holder.id().id().replace(':', ' ');
+            case ENTITY -> "entity " + holder.id().id().substring(0, 8);
         };
     }
 
@@ -43,11 +41,11 @@ public class Labels {
      * What a holder is, without its id: the player's name, or the custom name / type recorded with the event. The web
      * viewer shows the id next to it.
      */
-    public String name(HolderId holder, @Nullable HolderInfo info) {
-        return switch (holder.kind()) {
+    public String name(Holder holder) {
+        return switch (holder.id().kind()) {
             case PLAYER -> of(holder.asPlayerOrigin());
-            case BLOCK -> info != null ? info.displayName() : "Block";
-            case ENTITY -> info != null ? info.displayName() : "Entity";
+            case BLOCK -> holder.displayName();
+            case ENTITY -> holder.displayName();
         };
     }
 

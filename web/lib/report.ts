@@ -8,9 +8,15 @@ export type Holder = { label: string; kind: HolderKind; type?: string }
 /** What a block or entity was when the event happened, when that differs from its entry in `holders` */
 export type HolderAs = { label: string; type?: string }
 
+/** The 16 x 16 column of a world where an event happened */
+export type Chunk = { world: string; x: number; z: number }
+
 type Base = {
   seq: number
   time: number
+  /** The last of the similar events a stored one stands for, when it stands for several; `amount` is their sum */
+  until?: number
+  chunk?: Chunk
   cause: string
   holder: string
   holderAs?: HolderAs

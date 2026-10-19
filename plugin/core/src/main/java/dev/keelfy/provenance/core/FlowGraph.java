@@ -1,5 +1,7 @@
 package dev.keelfy.provenance.core;
 
+import dev.keelfy.provenance.core.model.ItemKey;
+import dev.keelfy.provenance.core.model.OriginId;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -15,12 +17,11 @@ import lombok.val;
  *
  * @author keelfy
  */
-@Getter
 public final class FlowGraph {
 
+    @Getter(AccessLevel.PACKAGE)
     private final Map<OriginId, Map<OriginId, Map<ItemKey, Double>>> edges = new HashMap<>();
 
-    @Getter(AccessLevel.NONE)
     private final Set<Edge> dirty = new HashSet<>();
 
     private record Edge(OriginId from, OriginId to, ItemKey item) {}
@@ -51,6 +52,17 @@ public final class FlowGraph {
         }
         dirty.clear();
         return rows;
+    }
+
+    /** Everyone {@code player} has sent items to or received items from. */
+    public Set<OriginId> partners(OriginId player) {
+        val partners = new HashSet<>(edges.getOrDefault(player, Map.of()).keySet());
+        edges.forEach((from, targets) -> {
+            if (targets.containsKey(player)) {
+                partners.add(from);
+            }
+        });
+        return partners;
     }
 
     public double flow(OriginId from, OriginId to, ItemKey item) {

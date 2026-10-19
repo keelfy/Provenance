@@ -2,8 +2,8 @@ package dev.keelfy.provenance.paper.listener;
 
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
-import dev.keelfy.provenance.core.Cause;
 import dev.keelfy.provenance.core.Ledger;
+import dev.keelfy.provenance.core.model.Cause;
 import dev.keelfy.provenance.paper.Holders;
 import dev.keelfy.provenance.paper.ItemKeys;
 import dev.keelfy.provenance.paper.Players;

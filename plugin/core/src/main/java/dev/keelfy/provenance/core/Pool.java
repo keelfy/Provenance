@@ -1,5 +1,6 @@
 package dev.keelfy.provenance.core;
 
+import dev.keelfy.provenance.core.taint.TaintVector;
 import lombok.Getter;
 
 /**

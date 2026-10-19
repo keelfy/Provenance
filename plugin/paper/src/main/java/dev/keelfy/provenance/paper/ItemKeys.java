@@ -1,6 +1,6 @@
 package dev.keelfy.provenance.paper;
 
-import dev.keelfy.provenance.core.ItemKey;
+import dev.keelfy.provenance.core.model.ItemKey;
 import io.papermc.paper.block.TileStateInventoryHolder;
 import io.papermc.paper.datacomponent.DataComponentTypes;
 import java.util.HashMap;
