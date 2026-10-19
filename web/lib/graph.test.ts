@@ -95,3 +95,21 @@ test("an expanded group shows its creatures as nodes that know their group", () 
   expect(zombies.every((n) => n.group === "group:minecraft:zombie" && !n.folded)).toBe(true)
   expect(g.groups.get("group:minecraft:zombie")!.expanded).toBe(true)
 })
+
+test("dropped items are one node that lists what lies there", () => {
+  const death: Report = {
+    ...report,
+    holders: { "PLAYER/bob": report.holders["PLAYER/bob"], "DROP/ground": { label: "Dropped items", kind: "DROP" } },
+    events: [
+      e(1, { type: "TRANSFERRED", cause: "death", holder: "PLAYER/bob", other: "DROP/ground", item: "minecraft:diamond", amount: 5 }),
+      e(2, { type: "TRANSFERRED", cause: "death", holder: "PLAYER/bob", other: "DROP/ground", item: "minecraft:dirt", amount: 64 }),
+      e(3, { type: "TRANSFERRED", cause: "pickup", holder: "DROP/ground", other: "PLAYER/bob", item: "minecraft:dirt", amount: 60 }),
+    ],
+  }
+  const g = buildGraph(death, NO_FILTERS)
+  expect(g.nodes).toHaveLength(2)
+  expect(Object.fromEntries(g.nodes.find((n) => n.id === "DROP/ground")!.items!)).toEqual({
+    "minecraft:diamond": 5,
+    "minecraft:dirt": 4,
+  })
+})

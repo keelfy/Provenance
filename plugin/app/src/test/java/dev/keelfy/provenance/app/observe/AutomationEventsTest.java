@@ -42,6 +42,16 @@ class AutomationEventsTest {
     }
 
     @Test
+    void burningFuelRemovesOneItemBecauseOfFuel() {
+        ledger.mint(Cause.CONTAINER, stand, PLANK, 2, alice);
+
+        automation.fuelBurned(stand, PLANK);
+
+        assertThat(ledger.getCount(stand, PLANK)).isEqualTo(1);
+        assertThat(ledger.drainChanges().events().getLast().cause()).isEqualTo(Cause.FUEL);
+    }
+
+    @Test
     void brewingNothingKeepsTheIngredient() {
         ledger.mint(Cause.CONTAINER, stand, WART, 1, alice);
 

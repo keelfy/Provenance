@@ -100,7 +100,11 @@ public final class WorldListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlace(BlockPlaceEvent event) {
         val block = event.getBlock();
-        world.blockPlaced(Holders.of(event.getPlayer()), Holders.of(block), ItemKeys.inside(event.getItemInHand()));
+        val item = ItemKeys.of(event.getItemInHand());
+        if (item != null) {
+            world.blockPlaced(
+                    PaperPlayer.of(event.getPlayer()), Holders.of(block), item, ItemKeys.inside(event.getItemInHand()));
+        }
 
         if (block.getState(false) instanceof Container) {
             world.containerPlaced(() -> joined(block));

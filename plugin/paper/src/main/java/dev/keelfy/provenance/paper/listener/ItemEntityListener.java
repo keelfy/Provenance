@@ -3,6 +3,7 @@ package dev.keelfy.provenance.paper.listener;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import dev.keelfy.provenance.app.observe.ItemEvents;
+import dev.keelfy.provenance.core.model.Cause;
 import dev.keelfy.provenance.paper.Holders;
 import dev.keelfy.provenance.paper.ItemKeys;
 import dev.keelfy.provenance.paper.PaperPlayer;
@@ -10,6 +11,7 @@ import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.val;
 import org.bukkit.entity.Hanging;
+import org.bukkit.entity.Item;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -74,12 +76,23 @@ public final class ItemEntityListener implements Listener {
                 ItemKeys.count(source.getItemStack().asQuantity(moved)));
     }
 
+    private static Cause why(EntityRemoveEvent.Cause cause) {
+        return switch (cause) {
+            case DESPAWN -> Cause.DESPAWN;
+            case DEATH -> Cause.DESTROY; // fire, lava, explosions, cactus, the void
+            default -> Cause.DROP;
+        };
+    }
+
     @EventHandler(priority = EventPriority.MONITOR)
     public void onRemove(EntityRemoveEvent event) {
         val entity = event.getEntity();
         if (entity instanceof Player || PERSISTENT.contains(event.getCause())) {
             return;
         }
-        items.removed(Holders.of(entity), entity instanceof Hanging);
+        items.removed(
+                Holders.of(entity),
+                entity instanceof Item ? why(event.getCause()) : Cause.DROP,
+                entity instanceof Hanging);
     }
 }

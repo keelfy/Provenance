@@ -1,9 +1,21 @@
 import { Graph, layout } from "@dagrejs/dagre"
-import type { Graph as Model, GraphEdge } from "@/lib/graph"
+import type { Graph as Model, GraphEdge, GraphNode } from "@/lib/graph"
 import { stackLabel } from "@/lib/format"
 
 export const NODE_W = 200
 export const NODE_H = 68
+
+/** A pile lists its items under the name, up to this many; the rest is a "+n more" line */
+export const PILE_ROWS = 6
+const PILE_ROW_H = 18
+const PILE_HEAD_H = 40
+
+/** Plates are all one size; a pile is as tall as its list. */
+export function nodeHeight(node: GraphNode): number {
+  if (!node.items) return NODE_H
+  const rows = Math.min(node.items.size, PILE_ROWS) + (node.items.size > PILE_ROWS ? 1 : 0)
+  return Math.max(NODE_H, PILE_HEAD_H + rows * PILE_ROW_H)
+}
 
 const LABEL_H = 26
 /** Rough width of the 12px semibold label plus its padding; dagre reserves this much room for it. */
@@ -22,7 +34,7 @@ export function place(model: Model): Map<string, Point> {
   const g = new Graph()
   g.setGraph({ rankdir: "LR", acyclicer: "greedy", nodesep: 56, ranksep: 60, marginx: 32, marginy: 32 })
   g.setDefaultEdgeLabel(() => ({}))
-  for (const node of model.nodes) g.setNode(node.id, { width: NODE_W, height: NODE_H })
+  for (const node of model.nodes) g.setNode(node.id, { width: NODE_W, height: nodeHeight(node) })
 
   // Items flowed first in the direction of the older event, so that is the direction the layers follow.
   const first = (edge: GraphEdge) => model.byEdge.get(edge.id)!.at(-1)!.seq
@@ -38,7 +50,7 @@ export function place(model: Model): Map<string, Point> {
   const out = new Map<string, Point>()
   for (const node of model.nodes) {
     const p = g.node(node.id)
-    out.set(node.id, { x: p.x - NODE_W / 2, y: p.y - NODE_H / 2 })
+    out.set(node.id, { x: p.x - NODE_W / 2, y: p.y - nodeHeight(node) / 2 })
   }
   return out
 }

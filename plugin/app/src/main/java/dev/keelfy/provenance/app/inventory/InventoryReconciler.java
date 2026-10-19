@@ -54,6 +54,18 @@ public final class InventoryReconciler {
     }
 
     /**
+     * One item of the player's is used up (eaten, placed as a block). The platform reports it before the stack shrinks,
+     * so the ledger is aligned first and the burn then carries the reason; creative players keep their stack.
+     */
+    public void spend(OnlinePlayer player, Cause cause, ItemKey item) {
+        if (player.creative()) {
+            return;
+        }
+        reconcile(player);
+        ledger.burn(cause, player.holder(), item, 1);
+    }
+
+    /**
      * The server shrinks the cursor before firing a drag event and fills the slots after it, so the dragged items are
      * momentarily in neither place.
      *

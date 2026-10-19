@@ -1,7 +1,8 @@
 import type { Report, ReportEvent } from "@/lib/report"
 
-/** What a dropped item is called once it is no longer folded away: it still lies on the ground. */
-const ON_GROUND = "Dropped item"
+/** Everything still lying on the ground is one holder: a death can leave dozens of stacks, and each would be a node. */
+export const GROUND = "DROP/ground"
+const GROUND_HOLDER = { label: "Dropped items", kind: "DROP" }
 
 /** A dropped stack is an item entity: the game's way to carry items between a block or player and a player. */
 const isDrop = (report: Report, id: string) =>
@@ -14,7 +15,7 @@ type Lying = { amount: number; event: ReportEvent }
  * "mined -> item entity -> picked up". The reader only needs "mined -> keelfy" and "Bob -> Alice".
  *
  * Each stack's pickups are matched with what put the items there, oldest first. Items nobody picked up in the report
- * (and pickups whose cause is outside it) keep their events and show as {@link ON_GROUND}.
+ * (and pickups whose cause is outside it) keep their events and share one holder, {@link GROUND}.
  */
 export function foldDrops(report: Report): Report {
   const lying = new Map<string, Lying[]>()
@@ -78,11 +79,22 @@ export function foldDrops(report: Report): Report {
     }
   }
 
-  const holders = Object.fromEntries(
-    Object.entries(report.holders).map(([id, holder]) => [
-      id,
-      isDrop(report, id) ? { label: ON_GROUND, kind: holder.kind } : holder,
-    ]),
-  )
-  return { ...report, holders, events }
+  // Whatever is left lies on the ground, however many stacks it was
+  const onGround = (id: string) => (isDrop(report, id) ? GROUND : id)
+  const merged: ReportEvent[] = []
+  for (const event of events) {
+    let next = event
+    if (onGround(next.holder) !== next.holder) next = { ...next, holder: GROUND, holderAs: undefined }
+    if (next.type === "TRANSFERRED" && onGround(next.other) !== next.other) {
+      next = { ...next, other: GROUND, otherAs: undefined }
+    }
+    if (next.type === "TRANSFERRED" && next.holder === next.other) continue // from one stack to another: nothing moved
+    merged.push(next)
+  }
+
+  const holders = Object.fromEntries(Object.entries(report.holders).filter(([id]) => !isDrop(report, id)))
+  if (merged.some((e) => e.holder === GROUND || (e.type === "TRANSFERRED" && e.other === GROUND))) {
+    holders[GROUND] = GROUND_HOLDER
+  }
+  return { ...report, holders, events: merged }
 }

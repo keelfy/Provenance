@@ -6,7 +6,7 @@ import type { Selection } from "@/components/board/board"
 import { EventRow } from "@/components/event-row"
 import { GroupMembers } from "@/components/group-members"
 import type { Graph } from "@/lib/graph"
-import { holderDetail, itemName } from "@/lib/format"
+import { holderDetail, itemList, itemName } from "@/lib/format"
 import { holderNames } from "@/lib/graph"
 import type { Report, ReportEvent } from "@/lib/report"
 
@@ -38,15 +38,16 @@ export function Details({ report, graph, selection, onSelect, onToggle, onReveal
       subtitle = `${plate.members.length} entries`
     } else {
       title = node.kind === "holder" ? label(node.id) : node.label
-      subtitle = node.kind === "holder" ? [node.type, holderDetail(node.id, true)].filter(Boolean).join(" · ") : null
+      subtitle = node.items
+        ? itemList(node.items)
+        : node.kind === "holder"
+          ? [node.type, holderDetail(node.id, true)].filter(Boolean).join(" · ")
+          : null
     }
   } else if (edge) {
     const name = (id: string) => (id in report.holders ? label(id) : (graph.nodes.find((n) => n.id === id)?.label ?? id))
     title = `${name(edge.source)} → ${name(edge.target)}`
-    subtitle = [...edge.items]
-      .sort((a, b) => b[1] - a[1])
-      .map(([item, n]) => `${n} × ${itemName(item)}`)
-      .join(", ")
+    subtitle = itemList(edge.items)
     events = graph.byEdge.get(edge.id) ?? []
   }
 

@@ -1,8 +1,9 @@
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react"
-import { Flame, Box, User, Sparkles, CircleHelp, PawPrint, ChevronsDownUp, ChevronsUpDown } from "lucide-react"
+import { Flame, Box, User, Sparkles, CircleHelp, PawPrint, Package, ChevronsDownUp, ChevronsUpDown } from "lucide-react"
 import type { GraphNode } from "@/lib/graph"
 import { cn } from "@/lib/utils"
-import { NODE_H, NODE_W } from "./layout"
+import { itemName } from "@/lib/format"
+import { NODE_H, NODE_W, nodeHeight, PILE_ROWS } from "./layout"
 
 export type BoardNode = Node<
   { node: GraphNode; selected: boolean; /** Folds or unfolds the group this node is part of */ onToggle?: () => void },
@@ -25,10 +26,11 @@ function Ports() {
   ])
 }
 
-const HOLDER_ICON: Record<string, typeof User> = { PLAYER: User, BLOCK: Box, ENTITY: PawPrint }
+const HOLDER_ICON: Record<string, typeof User> = { PLAYER: User, BLOCK: Box, ENTITY: PawPrint, DROP: Package }
 
 /** Players are pills, everything else is a plate. The root of the report is filled. */
 export function HolderNode({ data: { node, selected, onToggle } }: NodeProps<BoardNode>) {
+  if (node.items) return <PileNode node={node} selected={selected} />
   const Icon = HOLDER_ICON[node.holderKind ?? ""] ?? CircleHelp
   return (
     <div
@@ -118,6 +120,41 @@ export function SinkNode({ data: { selected } }: NodeProps<BoardNode>) {
     >
       <Flame className="size-4" aria-hidden />
       Burned
+      <Ports />
+    </div>
+  )
+}
+
+/** Dropped items: one plate with the list of what lies there, instead of a node per stack. */
+function PileNode({ node, selected }: { node: GraphNode; selected: boolean }) {
+  const items = [...node.items!].sort((a, b) => b[1] - a[1])
+  return (
+    <div
+      style={{ width: NODE_W, height: nodeHeight(node) }}
+      className={cn(
+        "flex flex-col justify-center gap-1 rounded-md border-[1.5px] border-ink bg-card px-4 text-ink",
+        node.suspicious && "border-redstone",
+        selected && "ring-3 ring-lapis ring-offset-2 ring-offset-background",
+      )}
+    >
+      <span className="flex items-center gap-2.5 font-heading text-base font-semibold" title={node.id}>
+        <Package className="size-4 shrink-0 opacity-70" aria-hidden />
+        <span className="truncate">{node.label}</span>
+        {node.notes > 0 && (
+          <span className="ml-auto rounded-full bg-copper px-1.5 text-xs font-normal text-card" title="Conversions and clears">
+            {node.notes}
+          </span>
+        )}
+      </span>
+      <ul className="text-xs leading-[18px]">
+        {items.slice(0, PILE_ROWS).map(([item, n]) => (
+          <li key={item} className="flex justify-between gap-2" title={`${n} × ${itemName(item)}`}>
+            <span className="truncate">{itemName(item)}</span>
+            <span className="shrink-0 opacity-60">× {n}</span>
+          </li>
+        ))}
+        {items.length > PILE_ROWS ? <li className="opacity-60">+{items.length - PILE_ROWS} more</li> : null}
+      </ul>
       <Ports />
     </div>
   )

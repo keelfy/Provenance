@@ -6,6 +6,7 @@ import dev.keelfy.provenance.app.Fakes;
 import dev.keelfy.provenance.app.inventory.InventoryReconciler;
 import dev.keelfy.provenance.app.inventory.ViewTarget;
 import dev.keelfy.provenance.core.Ledger;
+import dev.keelfy.provenance.core.event.LedgerEvent;
 import dev.keelfy.provenance.core.model.Cause;
 import dev.keelfy.provenance.core.model.Holder;
 import dev.keelfy.provenance.core.model.ItemKey;
@@ -87,7 +88,7 @@ class ItemEventsTest {
     void aRemovedFrameKeepsItsPoolOneMoreTick() {
         ledger.mint(Cause.DROP, entity, DIAMOND, 1, OriginId.WORLD);
 
-        items.removed(entity, true);
+        items.removed(entity, Cause.DROP, true);
         assertThat(ledger.getCount(entity, DIAMOND)).isEqualTo(1);
 
         scheduler.tick();
@@ -98,8 +99,58 @@ class ItemEventsTest {
     void otherEntitiesAreClearedAtOnce() {
         ledger.mint(Cause.DROP, entity, DIAMOND, 1, OriginId.WORLD);
 
-        items.removed(entity, false);
+        items.removed(entity, Cause.DROP, false);
 
         assertThat(ledger.getCount(entity, DIAMOND)).isZero();
+    }
+
+    @Test
+    void eatingBurnsOneItemBecauseItWasConsumed() {
+        alice.items.put(DIAMOND, 3L); // the server shrinks the stack after the event
+
+        items.consumed(alice, DIAMOND);
+
+        assertThat(ledger.getCount(alice.holder(), DIAMOND)).isEqualTo(2);
+        assertThat(ledger.drainChanges().events()).anySatisfy(e -> {
+            assertThat(e.cause()).isEqualTo(Cause.CONSUME);
+            assertThat(e.event()).isInstanceOf(LedgerEvent.Burned.class);
+        });
+    }
+
+    @Test
+    void creativePlayersConsumeNothing() {
+        alice.creative = true;
+        alice.items.put(DIAMOND, 3L);
+
+        items.consumed(alice, DIAMOND);
+
+        assertThat(ledger.drainChanges().events()).isEmpty();
+    }
+
+    @Test
+    void breakingAndThrowingBurnOneItemWithTheirOwnCause() {
+        alice.items.put(DIAMOND, 2L);
+
+        items.broken(alice, DIAMOND);
+        alice.items.put(DIAMOND, 1L); // the server shrinks the stack
+        items.launched(alice, DIAMOND);
+
+        assertThat(ledger.getCount(alice.holder(), DIAMOND)).isZero();
+        assertThat(ledger.drainChanges().events())
+                .filteredOn(e -> e.event() instanceof LedgerEvent.Burned)
+                .extracting(e -> e.cause())
+                .containsExactly(Cause.BREAK, Cause.SHOOT);
+    }
+
+    @Test
+    void aGroundItemIsClearedWithTheReasonItWentAway() {
+        ledger.mint(Cause.DROP, entity, DIAMOND, 1, OriginId.WORLD);
+        ledger.drainChanges();
+
+        items.removed(entity, Cause.DESTROY, false);
+
+        assertThat(ledger.drainChanges().events())
+                .singleElement()
+                .satisfies(e -> assertThat(e.cause()).isEqualTo(Cause.DESTROY));
     }
 }

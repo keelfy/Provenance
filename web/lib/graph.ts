@@ -31,6 +31,8 @@ export type GraphNode = {
   group?: string
   root: boolean
   suspicious: boolean
+  /** Holders that stand for a pile of things lying around (dropped items): what is in it, to list on the node */
+  items?: Map<string, number>
   /** Conversions and clears, which have no edge */
   notes: number
 }
@@ -292,6 +294,17 @@ export function buildGraph(report: Report, filters: Filters, expanded: ReadonlyS
   holder(report.query.root)
   for (const [id, who] of killers) {
     nodes.get(id)!.killedBy = who.size === 1 ? [...who][0] : `${who.size} hunters`
+  }
+
+  // A pile holds what came in less what left; its stacks are not nodes of their own, so the node lists them
+  for (const node of nodes.values()) {
+    if (node.holderKind !== "DROP") continue
+    node.items = new Map()
+    for (const edge of edges.values()) {
+      const sign = edge.target === node.id ? 1 : edge.source === node.id ? -1 : 0
+      for (const [item, n] of edge.items) node.items.set(item, (node.items.get(item) ?? 0) + sign * n)
+    }
+    for (const [item, n] of node.items) if (n <= 0) node.items.delete(item)
   }
 
   return { nodes: [...nodes.values()], groups, folded, edges: [...edges.values()], byNode, byEdge, events }

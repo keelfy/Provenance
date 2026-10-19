@@ -38,6 +38,11 @@ public final class AutomationEvents {
         ledger.convert(Cause.SMELT, block, Map.of(input, 1L), Map.of(output, outputAmount));
     }
 
+    /** A furnace or brewing stand burned one piece of fuel. */
+    public void fuelBurned(Holder block, ItemKey fuel) {
+        ledger.burn(Cause.FUEL, block, fuel, 1);
+    }
+
     /**
      * Each brewed bottle becomes its result and takes on the ingredient's origin; untouched bottles stay as they are.
      *

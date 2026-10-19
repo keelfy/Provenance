@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import lombok.RequiredArgsConstructor;
 import lombok.val;
+import org.bukkit.block.Block;
 import org.bukkit.block.Crafter;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -18,9 +19,12 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockCookEvent;
 import org.bukkit.event.block.CrafterCraftEvent;
 import org.bukkit.event.inventory.BrewEvent;
+import org.bukkit.event.inventory.BrewingStandFuelEvent;
+import org.bukkit.event.inventory.FurnaceBurnEvent;
 import org.bukkit.event.inventory.FurnaceSmeltEvent;
 import org.bukkit.event.inventory.InventoryMoveItemEvent;
 import org.bukkit.event.inventory.InventoryPickupItemEvent;
+import org.bukkit.inventory.ItemStack;
 
 /**
  * Translates item movement and conversion without a player in the loop (hoppers, droppers, hopper minecarts, furnaces,
@@ -66,6 +70,18 @@ public final class AutomationListener implements Listener {
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onFurnaceBurn(FurnaceBurnEvent event) {
+        fuelBurned(event.getBlock(), event.getFuel());
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onBrewingFuel(BrewingStandFuelEvent event) {
+        if (event.isConsuming()) {
+            fuelBurned(event.getBlock(), event.getFuel());
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onBrew(BrewEvent event) {
         val contents = event.getContents();
         val results = event.getResults();
@@ -81,6 +97,13 @@ public final class AutomationListener implements Listener {
         }
 
         automation.brewed(Holders.of(event.getBlock()), inputs, outputs, ItemKeys.of(contents.getIngredient()));
+    }
+
+    private void fuelBurned(Block block, ItemStack fuel) {
+        val key = ItemKeys.of(fuel);
+        if (key != null) {
+            automation.fuelBurned(Holders.of(block), key);
+        }
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)

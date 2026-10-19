@@ -27,6 +27,13 @@ export function stackLabel(items: ReadonlyMap<string, number>): string {
   return `${amount} × ${itemName(top[0])}${more > 0 ? ` +${more}` : ""}`
 }
 
+/** "445 × Diamond, 9 × Iron Ingot": every item, the most numerous first. */
+export const itemList = (items: ReadonlyMap<string, number>) =>
+  [...items]
+    .sort((a, b) => b[1] - a[1])
+    .map(([item, n]) => `${n} × ${itemName(item)}`)
+    .join(", ")
+
 /** The id a holder is known by, less important than its name: block coordinates or a short uuid. */
 export function holderDetail(id: string, full = false): string {
   const at = id.indexOf("/")

@@ -8,6 +8,7 @@ import dev.keelfy.provenance.app.world.ItemDrop;
 import dev.keelfy.provenance.app.world.SpawnContexts;
 import dev.keelfy.provenance.app.world.WorldPos;
 import dev.keelfy.provenance.core.Ledger;
+import dev.keelfy.provenance.core.event.LedgerEvent;
 import dev.keelfy.provenance.core.model.Cause;
 import dev.keelfy.provenance.core.model.Holder;
 import dev.keelfy.provenance.core.model.ItemKey;
@@ -156,5 +157,21 @@ class WorldEventsTest {
         world.itemSpawned(drop, false);
 
         assertThat(ledger.pool(drop.entity(), DIAMOND).getOrigin().shares()).containsOnlyKeys(alice);
+    }
+
+    @Test
+    void aPlacedBlockBurnsTheItemAndShulkerContentsMoveToTheBlock() {
+        val player = new Fakes.Player();
+        player.items.put(DIAMOND, 4L); // one of them is the block; the server shrinks the stack after the event
+        player.items.put(BONE, 2L);
+
+        world.blockPlaced(player, chest, DIAMOND, Map.of(BONE, 2L));
+
+        assertThat(ledger.getCount(player.holder(), DIAMOND)).isEqualTo(3);
+        assertThat(ledger.getCount(chest, BONE)).isEqualTo(2);
+        assertThat(ledger.drainChanges().events()).anySatisfy(e -> {
+            assertThat(e.cause()).isEqualTo(Cause.PLACE);
+            assertThat(e.event()).isInstanceOf(LedgerEvent.Burned.class);
+        });
     }
 }

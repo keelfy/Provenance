@@ -95,9 +95,13 @@ public final class WorldEvents {
         reconciler.track(player, ViewTarget.container(tile, contents));
     }
 
-    /** A placed shulker box keeps what it carried: that moves from the player to the block. */
-    public void blockPlaced(Holder placer, Holder block, Map<ItemKey, Long> carried) {
-        ledger.transfer(Cause.CONTAINER, placer, block, carried);
+    /**
+     * The placed block item is used up. A placed shulker box keeps what it carried: that moves from the player to the
+     * block.
+     */
+    public void blockPlaced(OnlinePlayer placer, Holder block, ItemKey item, Map<ItemKey, Long> carried) {
+        reconciler.spend(placer, Cause.PLACE, item);
+        ledger.transfer(Cause.CONTAINER, placer.holder(), block, carried);
     }
 
     /**

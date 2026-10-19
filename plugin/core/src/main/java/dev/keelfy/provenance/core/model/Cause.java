@@ -20,6 +20,13 @@ public record Cause(String key) {
     public static final Cause HOPPER = new Cause("hopper");
     public static final Cause SMELT = new Cause("smelt");
     public static final Cause TRADE = new Cause("trade");
+    public static final Cause CONSUME = new Cause("consume");
+    public static final Cause PLACE = new Cause("place");
+    public static final Cause BREAK = new Cause("break");
+    public static final Cause SHOOT = new Cause("shoot");
+    public static final Cause FUEL = new Cause("fuel");
+    public static final Cause DESPAWN = new Cause("despawn");
+    public static final Cause DESTROY = new Cause("destroy");
     public static final Cause RECONCILE = new Cause("reconcile");
 
     public Cause {

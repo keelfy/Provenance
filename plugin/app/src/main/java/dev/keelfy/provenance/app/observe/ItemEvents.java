@@ -39,6 +39,21 @@ public final class ItemEvents {
         ledger.transfer(Cause.DROP, player.holder(), entity, dropped);
     }
 
+    /** The player ate or drank one of {@code item}; whatever the use leaves behind is not modelled. */
+    public void consumed(OnlinePlayer player, ItemKey item) {
+        reconciler.spend(player, Cause.CONSUME, item);
+    }
+
+    /** A tool or armor piece of the player wore out and broke. */
+    public void broken(OnlinePlayer player, ItemKey item) {
+        reconciler.spend(player, Cause.BREAK, item);
+    }
+
+    /** The player threw or shot one of {@code item}: an arrow, snowball, ender pearl, potion. */
+    public void launched(OnlinePlayer player, ItemKey item) {
+        reconciler.spend(player, Cause.SHOOT, item);
+    }
+
     public void pickedUp(Holder item, OnlinePlayer picker, Map<ItemKey, Long> picked) {
         if (picked.isEmpty()) {
             return;
@@ -63,14 +78,15 @@ public final class ItemEvents {
     /**
      * An entity that held items is gone.
      *
+     * @param cause why it is gone: {@link Cause#DESPAWN}, {@link Cause#DESTROY}, or {@link Cause#DROP} if unknown
      * @param spillPending the entity is removed before its item spawns (an item frame), so the pool is needed a tick
      *     longer
      */
-    public void removed(Holder entity, boolean spillPending) {
+    public void removed(Holder entity, Cause cause, boolean spillPending) {
         if (spillPending) {
-            scheduler.runNextTick(() -> ledger.clear(Cause.DROP, entity));
+            scheduler.runNextTick(() -> ledger.clear(cause, entity));
         } else {
-            ledger.clear(Cause.DROP, entity);
+            ledger.clear(cause, entity);
         }
     }
 }

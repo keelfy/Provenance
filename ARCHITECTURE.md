@@ -95,7 +95,7 @@ Creative-игрок минтит `CREATIVE` вместо `UNKNOWN`.
   и вживую, и при replay.
   Составные операции разворачиваются в простые: недостача при `transfer` = `Transferred(moved)` + `Minted(UNKNOWN)`,
   `reconcile` = `Minted`/`Burned`, `transferAll` = N `Transferred`; `Converted` хранит входы/выходы по порядку ключей.
-- Команды `Ledger` принимают `Cause` (mine, kill, loot, pickup, drop, container, craft, hopper, smelt, trade, reconcile)
+- Команды `Ledger` принимают `Cause` (mine, kill, loot, pickup, drop, container, craft, hopper, smelt, trade, consume, place, break, shoot, fuel, despawn, destroy, reconcile)
   и кладут `Envelope(seq, time, cause, event)` в буфер; `drainChanges()` отдаёт его вместе со снимком (`events`, `lastSeq`).
 - `Transferred.custody` заполняется, когда получатель — игрок: чьи это были предметы (кража). При replay пересчитывается.
 - Таблица `event` (индексы `(holder, seq)`, `(other, seq)`), `meta.last_seq`. Снимок, события и `last_seq` пишутся
