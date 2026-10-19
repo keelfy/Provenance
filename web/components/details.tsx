@@ -28,7 +28,7 @@ export function Details({ report, graph, selection, onSelect, onToggle, onReveal
   let title = "All events"
   let subtitle: string | null = null
   let events: ReportEvent[] = graph.events
-  // A plate of creatures, or one creature of an expanded group
+  // A plate of creatures or blocks, or one of an expanded group
   const plate = node?.folded ? graph.groups.get(node.id) : undefined
   const siblings = node?.group ? graph.groups.get(node.group) : undefined
   if (node) {

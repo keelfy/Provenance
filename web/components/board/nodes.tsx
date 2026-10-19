@@ -38,7 +38,7 @@ export function HolderNode({ data: { node, selected, onToggle } }: NodeProps<Boa
       className={cn(
         "flex items-center gap-2.5 border-[1.5px] px-4 font-heading text-base font-semibold transition-shadow",
         node.holderKind === "PLAYER" ? "rounded-full" : "rounded-md",
-        // a stack of plates: there is more than one creature behind this
+        // a stack of plates: there is more than one holder behind this
         node.folded && "shadow-[5px_5px_0_-1.5px_var(--color-card),5px_5px_0_0_var(--color-ink)]",
         node.root ? "border-ink bg-ink text-card" : "border-ink bg-card text-ink",
         node.suspicious && !node.root && "border-redstone",
@@ -66,7 +66,7 @@ export function HolderNode({ data: { node, selected, onToggle } }: NodeProps<Boa
   )
 }
 
-/** The folded plate opens up into its creatures; each of them folds the group back. */
+/** The folded plate opens up into its entries; each of them folds the group back. */
 function GroupToggle({ node, onToggle }: { node: GraphNode; onToggle: () => void }) {
   const Chevrons = node.folded ? ChevronsUpDown : ChevronsDownUp
   return (

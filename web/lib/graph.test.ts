@@ -113,3 +113,28 @@ test("dropped items are one node that lists what lies there", () => {
     "minecraft:dirt": 4,
   })
 })
+
+const chests = (n: number): Report => {
+  const id = (i: number) => `BLOCK/w:${i}:64:0`
+  const holders: Report["holders"] = { "PLAYER/bob": report.holders["PLAYER/bob"] }
+  const events: ReportEvent[] = []
+  for (let i = 0; i < n; i++) {
+    holders[id(i)] = { label: "Chest", kind: "BLOCK", type: "minecraft:chest" }
+    events.push(e(i + 1, { type: "TRANSFERRED", holder: "PLAYER/bob", other: id(i), item: "minecraft:cobblestone", amount: 64 }))
+  }
+  return { ...report, holders, events }
+}
+
+test("a base of chests is one plate that lists where each chest is and what went in", () => {
+  const g = buildGraph(chests(500), NO_FILTERS)
+  expect(g.nodes.map((n) => n.id).sort()).toEqual(["PLAYER/bob", "group:minecraft:chest"])
+  expect(g.nodes.find((n) => n.id === "group:minecraft:chest")).toMatchObject({ holderKind: "BLOCK", folded: 500 })
+  expect(g.edges.find((x) => x.id === "PLAYER/bob>group:minecraft:chest")!.amount).toBe(500 * 64)
+  const [newest] = g.groups.get("group:minecraft:chest")!.members
+  expect(newest.where).toBe("w 499 64 0")
+  expect(Object.fromEntries(newest.items)).toEqual({ "minecraft:cobblestone": 64 })
+})
+
+test("a few chests stay on their own", () => {
+  expect(buildGraph(chests(4), NO_FILTERS).nodes).toHaveLength(5)
+})

@@ -1,5 +1,5 @@
 import { formatChunk, holderDetail, itemName } from "@/lib/format"
-import type { Holder, Report, ReportEvent } from "@/lib/report"
+import type { Holder, HolderKind, Report, ReportEvent } from "@/lib/report"
 
 export type Filters = {
   item: string | null
@@ -25,9 +25,9 @@ export type GraphNode = {
   how?: string
   /** Creatures that dropped loot: who killed them, above the name. The creature is the source, not the killer. */
   killedBy?: string
-  /** A plate standing for several creatures of one type: how many entries are folded into it */
+  /** A plate standing for several creatures or blocks of one type: how many entries are folded into it */
   folded?: number
-  /** A creature shown on its own from an expanded group: the group's id, to fold it back */
+  /** A creature or block shown on its own from an expanded group: the group's id, to fold it back */
   group?: string
   root: boolean
   suspicious: boolean
@@ -47,27 +47,29 @@ export type GraphEdge = {
   suspicious: boolean
 }
 
-/** One entry of a group: a creature, or the creatures of one type one player killed in one chunk. */
+/**
+ * One entry of a group: a creature, the creatures of one type one player killed in one chunk, or a block.
+ */
 export type Member = {
   id: string
-  /** Where it is: the chunk when known, else the short id */
+  /** Where it is: a block's coordinates; a creature's chunk when known, else its short id */
   where: string
   killedBy?: string
   from: number
   until: number
-  /** What it gave away or lost */
+  /** What moved in or out */
   items: Map<string, number>
   events: number
 }
 
-/** Creatures of one type, drawn as one plate until the reader expands them. */
-export type Group = { id: string; label: string; expanded: boolean; members: Member[] }
+/** Creatures or blocks of one type, drawn as one plate until the reader expands them. */
+export type Group = { id: string; label: string; kind: HolderKind; expanded: boolean; members: Member[] }
 
 export type Graph = {
   nodes: GraphNode[]
   /** By the group's id; groups exist for every type with two or more entries, expanded or not */
   groups: Map<string, Group>
-  /** The plate a folded creature is drawn in; creatures not in the map have a node of their own */
+  /** The plate a folded holder is drawn in; holders not in the map have a node of their own */
   folded: Map<string, string>
   edges: GraphEdge[]
   /** Events behind each node / edge id, newest first (`js-index-maps`) */
@@ -126,18 +128,26 @@ function typeName(info: Holder | undefined): string | undefined {
 
 const groupId = (type: string) => `group:${type}`
 
-/** The type whose creatures fold into one plate, if this holder is one of them. The root always stands alone. */
+/**
+ * How many holders of one type it takes to fold them. Mobs of a farm are many holders (one per chunk and killer), so
+ * two already fold. A few chests read better one by one: which chest it was matters when items go missing.
+ */
+const FOLD_AT: Partial<Record<HolderKind, number>> = { ENTITY: 2, BLOCK: 5 }
+
+/** The type whose holders fold into one plate, if this holder is one of them. The root always stands alone. */
 function groupType(report: Report, id: string): string | undefined {
   const info = report.holders[id]
-  return info?.kind === "ENTITY" && id !== report.query.root ? info.type : undefined
+  return info && info.kind in FOLD_AT && id !== report.query.root ? info.type : undefined
 }
 
 /**
- * Creatures of one type, in the order events reach them. Mobs of a farm are many holders (one per chunk and killer)
- * and each mob type has its own; folding them is what keeps a long history readable.
+ * Creatures and blocks of one type, in the order events reach them. A base of hundreds of chests or a farm of
+ * hundreds of mobs would be a node each; folding them is what keeps a long history readable.
  */
 function groupMembers(report: Report, events: ReportEvent[]): Map<string, Map<string, Member>> {
   const groups = new Map<string, Map<string, Member>>()
+  const add = (member: Member | undefined, item: string, amount: number) =>
+    member?.items.set(item, (member.items.get(item) ?? 0) + amount)
   const touch = (id: string, event: ReportEvent) => {
     const type = groupType(report, id)
     if (!type) return undefined
@@ -151,28 +161,31 @@ function groupMembers(report: Report, events: ReportEvent[]): Map<string, Map<st
     member.events++
     member.from = Math.min(member.from, event.time)
     member.until = Math.max(member.until, event.until ?? event.time)
-    member.where ||= event.holder === id && event.chunk ? formatChunk(event.chunk) : ""
+    if (report.holders[id].kind === "BLOCK") member.where ||= holderDetail(id)
+    else member.where ||= event.holder === id && event.chunk ? formatChunk(event.chunk) : ""
     return member
   }
   for (const event of events) {
     const member = touch(event.holder, event)
-    if (event.type === "TRANSFERRED") touch(event.other, event)
-    if (!member) continue
-    if (event.type === "TRANSFERRED" || event.type === "BURNED") {
-      member.items.set(event.item, (member.items.get(event.item) ?? 0) + event.amount)
-    } else if (event.type === "MINTED" && event.cause === "kill" && !event.suspicious) {
+    if (event.type === "TRANSFERRED") {
+      add(member, event.item, event.amount)
+      add(touch(event.other, event), event.item, event.amount)
+    } else if (event.type === "BURNED") {
+      add(member, event.item, event.amount)
+    } else if (member && event.type === "MINTED" && event.cause === "kill" && !event.suspicious) {
       member.killedBy ??= event.origin
     }
   }
   for (const [type, members] of groups) {
-    if (members.size < 2) groups.delete(type)
+    const kind = report.holders[members.keys().next().value!].kind
+    if (members.size < FOLD_AT[kind]!) groups.delete(type)
     else for (const m of members.values()) m.where ||= holderDetail(m.id)
   }
   return groups
 }
 
 /**
- * `expanded` lists the groups (by id) shown as separate creatures instead of one plate.
+ * `expanded` lists the groups (by id) shown as separate holders instead of one plate.
  */
 export function buildGraph(report: Report, filters: Filters, expanded: ReadonlySet<string> = NO_GROUPS): Graph {
   const nodes = new Map<string, GraphNode>()
@@ -182,15 +195,16 @@ export function buildGraph(report: Report, filters: Filters, expanded: ReadonlyS
   const events = report.events.filter((e) => matches(e, filters)).sort((a, b) => b.seq - a.seq)
 
   const groups = new Map<string, Group>()
-  /** Creatures that stand in a plate: holder id -> the plate's id */
+  /** Holders that stand in a plate: holder id -> the plate's id */
   const folded = new Map<string, string>()
-  /** Creatures shown on their own from an expanded group */
+  /** Holders shown on their own from an expanded group */
   const groupOf = new Map<string, string>()
   for (const [type, members] of groupMembers(report, events)) {
     const id = groupId(type)
     const open = expanded.has(id)
     const list = [...members.values()].sort((a, b) => b.from - a.from) // newest first, like the events
-    groups.set(id, { id, label: itemName(type), expanded: open, members: list })
+    const kind = report.holders[list[0].id].kind
+    groups.set(id, { id, label: itemName(type), kind, expanded: open, members: list })
     for (const m of list) (open ? groupOf : folded).set(m.id, id)
   }
   const killers = new Map<string, Set<string>>()
@@ -206,7 +220,7 @@ export function buildGraph(report: Report, filters: Filters, expanded: ReadonlyS
             id,
             kind: "holder",
             label: plate.label,
-            holderKind: "ENTITY",
+            holderKind: plate.kind,
             detail: `${plate.members.length} entries`,
             folded: plate.members.length,
             root: false,

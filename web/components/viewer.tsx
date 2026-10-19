@@ -90,7 +90,7 @@ function Workspace({ report: original }: { report: Report }) {
   const report = useMemo(() => foldDrops(original), [original])
   const [filters, setFilters] = useState<Filters>(NO_FILTERS)
   const [selection, setSelection] = useState<Selection>(null)
-  /** Groups of creatures shown one by one, by group id */
+  /** Groups of creatures or blocks shown one by one, by group id */
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
 
   const toggle = useCallback((group: string) => {
@@ -100,7 +100,7 @@ function Workspace({ report: original }: { report: Report }) {
       return next
     })
   }, [])
-  // Opens a group and picks one creature of it, from the list in the details
+  // Opens a group and picks one entry of it, from the list in the details
   const reveal = useCallback((group: string, member: string) => {
     setExpanded((prev) => new Set(prev).add(group))
     setSelection({ kind: "node", id: member })
