@@ -2,8 +2,11 @@ package dev.keelfy.provenance;
 
 import com.google.inject.Guice;
 import com.google.inject.Injector;
+import dev.keelfy.provenance.app.DrainableScheduler;
 import dev.keelfy.provenance.app.ProvenanceStorage;
+import dev.keelfy.provenance.app.command.ProvService;
 import dev.keelfy.provenance.app.inventory.InventoryReconciler;
+import dev.keelfy.provenance.paper.PaperDirectory;
 import dev.keelfy.provenance.paper.command.ProvCommand;
 import dev.keelfy.provenance.paper.listener.AutomationListener;
 import dev.keelfy.provenance.paper.listener.InventoryListener;
@@ -14,7 +17,9 @@ import io.papermc.paper.command.brigadier.Commands;
 import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
 import java.util.Objects;
 import lombok.val;
+import org.bukkit.event.HandlerList;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.jspecify.annotations.Nullable;
 
 /** @author keelfy */
 public final class ProvenancePlugin extends JavaPlugin {
@@ -33,11 +38,25 @@ public final class ProvenancePlugin extends JavaPlugin {
             return;
         }
 
-        // set up the storage
+        if (!start()) {
+            return;
+        }
+
+        // register commands
+        getLifecycleManager()
+                .registerEventHandler(LifecycleEvents.COMMANDS, event -> registerCommands(event.registrar()));
+
+        getLogger().info("Provenance ledger is ready");
+    }
+
+    /**
+     * Opens the storage, then wires listeners and scheduled tasks; disables the plugin if the storage is unavailable.
+     */
+    private boolean start() {
         val storage = Objects.requireNonNull(injector.getInstance(ProvenanceStorage.class));
         if (!storage.open()) {
             getServer().getPluginManager().disablePlugin(this);
-            return;
+            return false;
         }
 
         registerListeners();
@@ -47,12 +66,42 @@ public final class ProvenancePlugin extends JavaPlugin {
         // set scheduled tasks
         reconciler.runScheduler();
         storage.runScheduler();
+        return true;
+    }
 
-        // register commands
-        getLifecycleManager()
-                .registerEventHandler(LifecycleEvents.COMMANDS, event -> registerCommands(event.registrar()));
+    /** Finishes the queued next-tick work first: cancelling the tasks below would drop it. */
+    private void stop() {
+        Objects.requireNonNull(injector.getInstance(DrainableScheduler.class)).drain();
+        HandlerList.unregisterAll(this);
+        getServer().getScheduler().cancelTasks(this);
+        Objects.requireNonNull(injector.getInstance(ProvenanceStorage.class)).close();
+    }
 
-        getLogger().info("Provenance ledger is ready");
+    /**
+     * Re-reads {@code config.yml} and rebuilds the ledger from the storage. A config that does not parse is rejected
+     * before anything is stopped.
+     *
+     * @return why the reload failed, {@code null} if it did not
+     */
+    private @Nullable String reload() {
+        reloadConfig();
+
+        Injector reloaded;
+        try {
+            reloaded = Guice.createInjector(new ProvenanceModule(this));
+        } catch (Exception e) {
+            getLogger().severe("Reload rejected: " + e.getMessage());
+            return "Config is invalid, still running on the old one (see console)";
+        }
+
+        stop();
+        injector = reloaded;
+        if (!start()) {
+            return "Storage is unavailable, plugin disabled (see console)";
+        }
+
+        getLogger().info("Provenance reloaded");
+        return null;
     }
 
     private void registerListeners() {
@@ -65,14 +114,16 @@ public final class ProvenancePlugin extends JavaPlugin {
     }
 
     private void registerCommands(Commands registrar) {
-        val command = Objects.requireNonNull(injector.getInstance(ProvCommand.class));
-        val commandNode = Objects.requireNonNull(command.build());
-        registrar.register(commandNode, "Item provenance and player correlations");
+        // the command outlives a reload, so it looks the service up each time
+        val command = new ProvCommand(
+                () -> Objects.requireNonNull(injector.getInstance(ProvService.class)),
+                new PaperDirectory(getServer()),
+                this::reload);
+        registrar.register(Objects.requireNonNull(command.build()), "Item provenance and player correlations");
     }
 
     @Override
     public void onDisable() {
-        val storage = Objects.requireNonNull(injector.getInstance(ProvenanceStorage.class));
-        storage.close();
+        stop();
     }
 }

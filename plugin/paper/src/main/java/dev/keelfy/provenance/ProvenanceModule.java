@@ -1,6 +1,7 @@
 package dev.keelfy.provenance;
 
 import com.google.inject.AbstractModule;
+import dev.keelfy.provenance.app.DrainableScheduler;
 import dev.keelfy.provenance.app.ProvenanceStorage;
 import dev.keelfy.provenance.app.Settings;
 import dev.keelfy.provenance.app.command.ProvService;
@@ -34,8 +35,8 @@ public final class ProvenanceModule extends AbstractModule {
     protected void configure() {
         plugin.saveDefaultConfig();
         val settings = Settings.from(new PaperConfig(plugin.getConfig()));
-        val scheduler = new PaperScheduler(plugin);
         val log = new PaperLog(plugin.getLogger());
+        val scheduler = new DrainableScheduler(new PaperScheduler(plugin), log);
         val directory = new PaperDirectory(plugin.getServer());
         val ledger = new Ledger(System::currentTimeMillis, settings.mergeAutomation());
         val contexts = new SpawnContexts(scheduler);
@@ -44,6 +45,7 @@ public final class ProvenanceModule extends AbstractModule {
         val publisher = new ReportPublisher(settings);
 
         bind(ProvenancePlugin.class).toInstance(plugin);
+        bind(DrainableScheduler.class).toInstance(scheduler);
         bind(ProvenanceStorage.class).toInstance(storage);
         bind(InventoryReconciler.class).toInstance(reconciler);
         bind(PlayerDirectory.class).toInstance(directory);
