@@ -98,7 +98,13 @@ export default function Board({
           lane: !opposite ? 0 : edge.source < edge.target ? -1 : 1,
           onSelect: () => onSelect({ kind: "edge", id: edge.id }),
         },
-        style: { stroke: color, strokeWidth: width(edge.amount), opacity: dim ? 0.3 : 0.9 },
+        style: {
+          stroke: color,
+          // Items that came back: a thin dashed line, whatever the traffic was
+          strokeWidth: edge.settled ? 1.5 : width(edge.amount),
+          strokeDasharray: edge.settled ? "5 5" : undefined,
+          opacity: dim ? 0.3 : edge.settled ? 0.6 : 0.9,
+        },
         markerEnd: { type: MarkerType.ArrowClosed, color, width: 16, height: 16, markerUnits: "userSpaceOnUse" },
       }
     })

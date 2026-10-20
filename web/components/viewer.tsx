@@ -4,7 +4,8 @@ import dynamic from "next/dynamic"
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react"
 import type { Selection } from "@/components/board/board"
 import { Details } from "@/components/details"
-import { Toolbar } from "@/components/toolbar"
+import { Counterparties } from "@/components/counterparties"
+import { Toolbar, type View } from "@/components/toolbar"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { buildGraph, facets, NO_FILTERS, type Filters } from "@/lib/graph"
@@ -88,6 +89,7 @@ function Failure({ reason }: { reason: keyof typeof MESSAGES }) {
 function Workspace({ report: original }: { report: Report }) {
   // Dropped items are plumbing, not part of the story (see `foldDrops`)
   const report = useMemo(() => foldDrops(original), [original])
+  const [view, setView] = useState<View>("board")
   const [filters, setFilters] = useState<Filters>(NO_FILTERS)
   const [selection, setSelection] = useState<Selection>(null)
   /** Groups of creatures or blocks shown one by one, by group id */
@@ -117,13 +119,18 @@ function Workspace({ report: original }: { report: Report }) {
       ? graph.nodes.some((n) => n.id === selection.id)
       : graph.edges.some((e) => e.id === selection.id))
   const active = present ? selection : null
+  const table = report.holders[report.query.root]?.kind === "PLAYER"
 
   return (
     <div className="flex h-full flex-col">
-      <Toolbar report={original} facets={options} filters={filters} onFilters={setFilters} />
+      <Toolbar report={original} view={table ? view : null} onView={setView} facets={options} filters={filters} onFilters={setFilters} />
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         <div className="relative min-h-[55vh] flex-1">
-          <Board graph={graph} selection={active} onSelect={setSelection} onToggle={toggle} />
+          {table && view === "table" ? (
+            <Counterparties graph={graph} selection={active} onSelect={setSelection} />
+          ) : (
+            <Board graph={graph} selection={active} onSelect={setSelection} onToggle={toggle} />
+          )}
         </div>
         <Details report={report} graph={graph} selection={active} onSelect={setSelection} onToggle={toggle} onReveal={reveal} />
       </div>

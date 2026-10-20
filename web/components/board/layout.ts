@@ -23,7 +23,7 @@ const labelWidth = (text: string) => Math.ceil(text.length * 7 + 22)
 
 export type Point = { x: number; y: number }
 
-export const edgeLabel = (edge: GraphEdge) => stackLabel(edge.items)
+export const edgeLabel = (edge: GraphEdge) => (edge.settled ? `↔ ${stackLabel(edge.items)}` : stackLabel(edge.items))
 
 /**
  * Left-to-right layers: origins on the left, burn on the right. Only the node positions come from dagre (top-left

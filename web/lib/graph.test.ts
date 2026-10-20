@@ -116,25 +116,86 @@ test("dropped items are one node that lists what lies there", () => {
 
 const chests = (n: number): Report => {
   const id = (i: number) => `BLOCK/w:${i}:64:0`
-  const holders: Report["holders"] = { "PLAYER/bob": report.holders["PLAYER/bob"] }
+  const holders: Report["holders"] = { "PLAYER/bob": report.holders["PLAYER/bob"], "PLAYER/eve": { label: "Eve", kind: "PLAYER" } }
   const events: ReportEvent[] = []
   for (let i = 0; i < n; i++) {
     holders[id(i)] = { label: "Chest", kind: "BLOCK", type: "minecraft:chest" }
     events.push(e(i + 1, { type: "TRANSFERRED", holder: "PLAYER/bob", other: id(i), item: "minecraft:cobblestone", amount: 64 }))
+    // somebody else opened every chest too, so these are shared and fold by type, not as the player's own
+    events.push(e(n + i + 1, { type: "TRANSFERRED", holder: id(i), other: "PLAYER/eve", item: "minecraft:cobblestone", amount: 1 }))
   }
   return { ...report, holders, events }
 }
 
 test("a base of chests is one plate that lists where each chest is and what went in", () => {
   const g = buildGraph(chests(500), NO_FILTERS)
-  expect(g.nodes.map((n) => n.id).sort()).toEqual(["PLAYER/bob", "group:minecraft:chest"])
+  expect(g.nodes.map((n) => n.id).sort()).toEqual(["PLAYER/bob", "PLAYER/eve", "group:minecraft:chest"])
   expect(g.nodes.find((n) => n.id === "group:minecraft:chest")).toMatchObject({ holderKind: "BLOCK", folded: 500 })
   expect(g.edges.find((x) => x.id === "PLAYER/bob>group:minecraft:chest")!.amount).toBe(500 * 64)
   const [newest] = g.groups.get("group:minecraft:chest")!.members
   expect(newest.where).toBe("w 499 64 0")
-  expect(Object.fromEntries(newest.items)).toEqual({ "minecraft:cobblestone": 64 })
+  expect(Object.fromEntries(newest.items)).toEqual({ "minecraft:cobblestone": 65 })
 })
 
 test("a few chests stay on their own", () => {
-  expect(buildGraph(chests(4), NO_FILTERS).nodes).toHaveLength(5)
+  expect(buildGraph(chests(4), NO_FILTERS).nodes).toHaveLength(6)
+})
+
+const SHULKER = (i: number) => `SHULKER/box${i}`
+
+/** Bob packs `n` shulker boxes and takes the stacks out again; Eve opens `shared` of them */
+const packing = (n: number, shared = 0): Report => {
+  const holders: Report["holders"] = { "PLAYER/bob": report.holders["PLAYER/bob"], "PLAYER/eve": { label: "Eve", kind: "PLAYER" } }
+  const events: ReportEvent[] = []
+  let seq = 1
+  for (let i = 0; i < n; i++) {
+    // different colours: not one type
+    holders[SHULKER(i)] = { label: "Shulker Box", kind: "SHULKER", type: `minecraft:${i % 2 ? "red" : "blue"}_shulker_box` }
+    events.push(e(seq++, { type: "TRANSFERRED", holder: "PLAYER/bob", other: SHULKER(i), item: "minecraft:stone", amount: 1728 }))
+    events.push(e(seq++, { type: "TRANSFERRED", holder: SHULKER(i), other: "PLAYER/bob", item: "minecraft:stone", amount: 1728 }))
+    if (i < shared) events.push(e(seq++, { type: "TRANSFERRED", holder: SHULKER(i), other: "PLAYER/eve", item: "minecraft:stone", amount: 1 }))
+  }
+  return { ...report, holders, events }
+}
+
+test("containers only the player touched fold into one plate, whatever their type", () => {
+  const g = buildGraph(packing(8), NO_FILTERS)
+  expect(g.nodes.map((n) => n.id).sort()).toEqual(["PLAYER/bob", "group:own"])
+  expect(g.nodes.find((n) => n.id === "group:own")).toMatchObject({ label: "Own storage", folded: 8 })
+})
+
+test("a container another player opened stays on its own", () => {
+  const g = buildGraph(packing(8, 2), NO_FILTERS)
+  expect(g.nodes.filter((n) => n.holderKind === "SHULKER").map((n) => n.id).sort()).toEqual([SHULKER(0), SHULKER(1)])
+  expect(g.nodes.find((n) => n.id === "group:own")).toMatchObject({ folded: 6 })
+})
+
+test("a pair that passed items back and forth is one link with what is left", () => {
+  const trade: Report = {
+    ...report,
+    holders: { "PLAYER/bob": report.holders["PLAYER/bob"], "BLOCK/chest": report.holders["BLOCK/chest"] },
+    events: [
+      e(1, { type: "TRANSFERRED", holder: "PLAYER/bob", other: "BLOCK/chest", item: "minecraft:stone", amount: 100 }),
+      e(2, { type: "TRANSFERRED", holder: "BLOCK/chest", other: "PLAYER/bob", item: "minecraft:stone", amount: 40 }),
+      e(3, { type: "TRANSFERRED", holder: "BLOCK/chest", other: "PLAYER/bob", item: "minecraft:dirt", amount: 5 }),
+    ],
+  }
+  const g = buildGraph(trade, NO_FILTERS)
+  expect(g.edges.map((x) => x.id).sort()).toEqual(["BLOCK/chest>PLAYER/bob", "PLAYER/bob>BLOCK/chest"])
+  expect(Object.fromEntries(g.edges.find((x) => x.id === "PLAYER/bob>BLOCK/chest")!.items)).toEqual({ "minecraft:stone": 60 })
+  expect(Object.fromEntries(g.edges.find((x) => x.id === "BLOCK/chest>PLAYER/bob")!.items)).toEqual({ "minecraft:dirt": 5 })
+  expect(g.byEdge.get("PLAYER/bob>BLOCK/chest")!.map((x) => x.seq)).toEqual([3, 2, 1])
+})
+
+test("a pair that nets out keeps one dashed edge, from the side that started it", () => {
+  const g = buildGraph(packing(1), NO_FILTERS)
+  expect(g.edges).toHaveLength(1)
+  expect(g.edges[0]).toMatchObject({ id: `PLAYER/bob>${SHULKER(0)}`, settled: true, amount: 3456 })
+})
+
+test("counterparties list what came from and went to the root, before the traffic is netted", () => {
+  const rows = buildGraph(packing(2), NO_FILTERS).counterparties
+  expect(rows.map((r) => r.id).sort()).toEqual([SHULKER(0), SHULKER(1)]) // two boxes are too few to fold
+  expect(Object.fromEntries(rows[0].received)).toEqual({ "minecraft:stone": 1728 })
+  expect(Object.fromEntries(rows[0].gave)).toEqual({ "minecraft:stone": 1728 })
 })

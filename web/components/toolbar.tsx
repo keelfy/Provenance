@@ -1,4 +1,5 @@
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { formatIn, holderDetail, itemName } from "@/lib/format"
@@ -39,14 +40,19 @@ function Pick({
   )
 }
 
+export type View = "board" | "table"
+
 type Props = {
   report: Report
+  /** The table lists a player's counterparties; other roots only have the board */
+  view: View | null
+  onView: (view: View) => void
   facets: { items: string[]; causes: string[] }
   filters: Filters
   onFilters: (filters: Filters) => void
 }
 
-export function Toolbar({ report, facets, filters, onFilters }: Props) {
+export function Toolbar({ report, view, onView, facets, filters, onFilters }: Props) {
   const root = report.holders[report.query.root]?.label ?? report.query.root
   return (
     <header className="flex flex-wrap items-center gap-x-6 gap-y-3 border-b border-border bg-card px-4 py-3">
@@ -71,6 +77,15 @@ export function Toolbar({ report, facets, filters, onFilters }: Props) {
       ) : null}
 
       <div className="ml-auto flex flex-wrap items-center gap-3">
+        {view ? (
+          <div className="flex gap-1" role="group" aria-label="View">
+            {(["board", "table"] as const).map((v) => (
+              <Button key={v} size="sm" variant={view === v ? "default" : "outline"} onClick={() => onView(v)}>
+                {v === "board" ? "Board" : "Table"}
+              </Button>
+            ))}
+          </div>
+        ) : null}
         <Pick
           label="Any item"
           value={filters.item}

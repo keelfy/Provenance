@@ -41,10 +41,12 @@ export type GraphEdge = {
   id: string
   source: string
   target: string
-  /** All items moved, summed */
+  /** Items moved, summed; for two-way traffic what is left after the other direction is taken off */
   amount: number
   items: Map<string, number>
   suspicious: boolean
+  /** Everything that went one way came back: `items` is the traffic in both directions, and nothing changed hands */
+  settled?: boolean
 }
 
 /**
@@ -65,8 +67,19 @@ export type Member = {
 /** Creatures or blocks of one type, drawn as one plate until the reader expands them. */
 export type Group = { id: string; label: string; kind: HolderKind; expanded: boolean; members: Member[] }
 
+/** What passed between the root and one other node, in both directions: a row of the table view. */
+export type Counterparty = {
+  id: string
+  /** What came in from there / went out to there, by item */
+  received: Map<string, number>
+  gave: Map<string, number>
+  suspicious: boolean
+}
+
 export type Graph = {
   nodes: GraphNode[]
+  /** Everyone and everything the root exchanged items with, the busiest first */
+  counterparties: Counterparty[]
   /** By the group's id; groups exist for every type with two or more entries, expanded or not */
   groups: Map<string, Group>
   /** The plate a folded holder is drawn in; holders not in the map have a node of their own */
@@ -126,7 +139,10 @@ function typeName(info: Holder | undefined): string | undefined {
   return name !== info?.label ? name : undefined
 }
 
-const groupId = (type: string) => `group:${type}`
+const groupId = (key: string) => `group:${key}`
+
+/** The group of containers only the root player ever touched; no item type or block type can collide with it */
+const OWN = "own"
 
 /**
  * How many holders of one type it takes to fold them. Mobs of a farm are many holders (one per chunk and killer), so
@@ -134,10 +150,38 @@ const groupId = (type: string) => `group:${type}`
  */
 const FOLD_AT: Partial<Record<HolderKind, number>> = { ENTITY: 2, BLOCK: 5, SHULKER: 5 }
 
-/** The type whose holders fold into one plate, if this holder is one of them. The root always stands alone. */
-function groupType(report: Report, id: string): string | undefined {
+const isContainer = (kind: HolderKind) => kind === "BLOCK" || kind === "SHULKER"
+
+/**
+ * The containers of a player's own history that nobody else ever touched: the chests and shulker boxes he sorts his
+ * things into. Whatever goes in comes back out, and which box it was is no part of the story. A container another
+ * player opened (a theft, a gift) is not in the set, nor is one that only machines use.
+ */
+function ownStorage(report: Report): ReadonlySet<string> {
+  const root = report.query.root
+  if (report.holders[root]?.kind !== "PLAYER") return new Set()
+  const own = new Set<string>()
+  const foreign = new Set<string>()
+  const touch = (id: string, other: string) => {
+    if (!isContainer(report.holders[id]?.kind)) return
+    if (other === root) own.add(id)
+    else if (report.holders[other]?.kind === "PLAYER") foreign.add(id)
+  }
+  for (const event of report.events) {
+    if (event.type !== "TRANSFERRED") continue
+    touch(event.holder, event.other)
+    touch(event.other, event.holder)
+  }
+  for (const id of foreign) own.delete(id)
+  return own
+}
+
+/** The group whose plate this holder folds into, if any. The root always stands alone. */
+function groupKey(report: Report, id: string, own: ReadonlySet<string>): string | undefined {
   const info = report.holders[id]
-  return info && info.kind in FOLD_AT && id !== report.query.root ? info.type : undefined
+  if (!info || id === report.query.root) return undefined
+  if (own.has(id)) return OWN
+  return info.kind in FOLD_AT ? info.type : undefined
 }
 
 /**
@@ -145,14 +189,15 @@ function groupType(report: Report, id: string): string | undefined {
  * hundreds of mobs would be a node each; folding them is what keeps a long history readable.
  */
 function groupMembers(report: Report, events: ReportEvent[]): Map<string, Map<string, Member>> {
+  const own = ownStorage(report)
   const groups = new Map<string, Map<string, Member>>()
   const add = (member: Member | undefined, item: string, amount: number) =>
     member?.items.set(item, (member.items.get(item) ?? 0) + amount)
   const touch = (id: string, event: ReportEvent) => {
-    const type = groupType(report, id)
-    if (!type) return undefined
-    let members = groups.get(type)
-    if (!members) groups.set(type, (members = new Map()))
+    const key = groupKey(report, id, own)
+    if (!key) return undefined
+    let members = groups.get(key)
+    if (!members) groups.set(key, (members = new Map()))
     let member = members.get(id)
     if (!member) {
       member = { id, where: "", from: Infinity, until: -Infinity, items: new Map(), events: 0 }
@@ -176,9 +221,9 @@ function groupMembers(report: Report, events: ReportEvent[]): Map<string, Map<st
       member.killedBy ??= event.origin
     }
   }
-  for (const [type, members] of groups) {
+  for (const [key, members] of groups) {
     const kind = report.holders[members.keys().next().value!].kind
-    if (members.size < FOLD_AT[kind]!) groups.delete(type)
+    if (members.size < FOLD_AT[kind]!) groups.delete(key)
     else for (const m of members.values()) m.where ||= holderDetail(m.id)
   }
   return groups
@@ -199,12 +244,12 @@ export function buildGraph(report: Report, filters: Filters, expanded: ReadonlyS
   const folded = new Map<string, string>()
   /** Holders shown on their own from an expanded group */
   const groupOf = new Map<string, string>()
-  for (const [type, members] of groupMembers(report, events)) {
-    const id = groupId(type)
+  for (const [key, members] of groupMembers(report, events)) {
+    const id = groupId(key)
     const open = expanded.has(id)
     const list = [...members.values()].sort((a, b) => b.from - a.from) // newest first, like the events
-    const kind = report.holders[list[0].id].kind
-    groups.set(id, { id, label: itemName(type), kind, expanded: open, members: list })
+    const kind = key === OWN ? "BLOCK" : report.holders[list[0].id].kind
+    groups.set(id, { id, label: key === OWN ? "Own storage" : itemName(key), kind, expanded: open, members: list })
     for (const m of list) (open ? groupOf : folded).set(m.id, id)
   }
   const killers = new Map<string, Set<string>>()
@@ -321,7 +366,72 @@ export function buildGraph(report: Report, filters: Filters, expanded: ReadonlyS
     for (const [item, n] of node.items) if (n <= 0) node.items.delete(item)
   }
 
-  return { nodes: [...nodes.values()], groups, folded, edges: [...edges.values()], byNode, byEdge, events }
+  const counterparties = counterpartiesOf(report.query.root, edges)
+  netPairs(edges, byEdge)
+
+  return { nodes: [...nodes.values()], counterparties, groups, folded, edges: [...edges.values()], byNode, byEdge, events }
+}
+
+/** Read off the edges before they are netted: what went each way is the point here. */
+function counterpartiesOf(root: string, edges: Map<string, GraphEdge>): Counterparty[] {
+  const rows = new Map<string, Counterparty>()
+  for (const edge of edges.values()) {
+    const received = edge.target === root
+    if (!received && edge.source !== root) continue
+    const id = received ? edge.source : edge.target
+    let row = rows.get(id)
+    if (!row) rows.set(id, (row = { id, received: new Map(), gave: new Map(), suspicious: false }))
+    const side = received ? row.received : row.gave
+    for (const [item, n] of edge.items) side.set(item, (side.get(item) ?? 0) + n)
+    row.suspicious ||= edge.suspicious
+  }
+  const volume = (row: Counterparty) =>
+    [...row.received.values(), ...row.gave.values()].reduce((a, b) => a + b, 0)
+  return [...rows.values()].sort((a, b) => volume(b) - volume(a))
+}
+
+/**
+ * Two holders that pass items back and forth are one link with what is left over: packing a stack into a box and
+ * taking it out again is no flow. Both directions only stay when different items net out in different directions; a
+ * pair that nets out entirely keeps one dashed edge, so the layout still ties the holders together.
+ */
+function netPairs(edges: Map<string, GraphEdge>, byEdge: Map<string, ReportEvent[]>) {
+  for (const forward of [...edges.values()]) {
+    const back = edges.get(`${forward.target}>${forward.source}`)
+    if (!back || forward.source > forward.target) continue
+    const events = [...byEdge.get(forward.id)!, ...byEdge.get(back.id)!].sort((a, b) => b.seq - a.seq)
+    const suspicious = forward.suspicious || back.suspicious
+    const net = (to: GraphEdge, from: GraphEdge) => {
+      const left = new Map<string, number>()
+      for (const [item, n] of to.items) {
+        const rest = n - (from.items.get(item) ?? 0)
+        if (rest > 0) left.set(item, rest)
+      }
+      return left
+    }
+    const sum = (items: Map<string, number>) => [...items.values()].reduce((a, b) => a + b, 0)
+    const gross = new Map(forward.items)
+    for (const [item, n] of back.items) gross.set(item, (gross.get(item) ?? 0) + n)
+
+    const results = [
+      { edge: forward, items: net(forward, back) },
+      { edge: back, items: net(back, forward) },
+    ].filter((r) => r.items.size > 0)
+    if (results.length === 0) {
+      // The one that started it stays; the direction is only for the layout
+      const first = (edge: GraphEdge) => byEdge.get(edge.id)!.at(-1)!.seq
+      const start = first(forward) <= first(back) ? forward : back
+      results.push({ edge: { ...start, settled: true }, items: gross })
+    }
+    edges.delete(forward.id)
+    edges.delete(back.id)
+    byEdge.delete(forward.id)
+    byEdge.delete(back.id)
+    for (const { edge, items } of results) {
+      edges.set(edge.id, { ...edge, items, amount: sum(items), suspicious })
+      byEdge.set(edge.id, events)
+    }
+  }
 }
 
 /**
