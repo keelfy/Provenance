@@ -8,7 +8,7 @@ import { Counterparties } from "@/components/counterparties"
 import { Toolbar, type View } from "@/components/toolbar"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { buildGraph, facets, NO_FILTERS, type Filters } from "@/lib/graph"
+import { buildGraph, facets, FOLD_ALL, NO_FILTERS, type Filters, type Folding } from "@/lib/graph"
 import { foldDrops } from "@/lib/ground"
 import type { Report } from "@/lib/report"
 
@@ -87,8 +87,9 @@ function Failure({ reason }: { reason: keyof typeof MESSAGES }) {
 }
 
 function Workspace({ report: original }: { report: Report }) {
-  // Dropped items are plumbing, not part of the story (see `foldDrops`)
-  const report = useMemo(() => foldDrops(original), [original])
+  const [folding, setFolding] = useState<Folding>(FOLD_ALL)
+  // Dropped items are plumbing, not part of the story (see `foldDrops`), unless the reader wants them
+  const report = useMemo(() => (folding.drops ? foldDrops(original) : original), [original, folding.drops])
   const [view, setView] = useState<View>("board")
   const [filters, setFilters] = useState<Filters>(NO_FILTERS)
   const [selection, setSelection] = useState<Selection>(null)
@@ -111,7 +112,7 @@ function Workspace({ report: original }: { report: Report }) {
   // Typing in a filter must stay responsive while the graph and layout recompute (`rerender-use-deferred-value`).
   const deferred = useDeferredValue(filters)
   const options = useMemo(() => facets(report), [report])
-  const graph = useMemo(() => buildGraph(report, deferred, expanded), [report, deferred, expanded])
+  const graph = useMemo(() => buildGraph(report, deferred, expanded, folding), [report, deferred, expanded, folding])
 
   const present =
     selection &&
@@ -123,7 +124,7 @@ function Workspace({ report: original }: { report: Report }) {
 
   return (
     <div className="flex h-full flex-col">
-      <Toolbar report={original} view={table ? view : null} onView={setView} facets={options} filters={filters} onFilters={setFilters} />
+      <Toolbar report={original} view={table ? view : null} onView={setView} facets={options} filters={filters} onFilters={setFilters} folding={folding} onFolding={setFolding} />
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         <div className="relative min-h-[55vh] flex-1">
           {table && view === "table" ? (

@@ -9,6 +9,18 @@ export type Filters = {
 
 export const NO_FILTERS: Filters = { item: null, cause: null, suspiciousOnly: false }
 
+/** Each shortcut the story takes can be switched off, to read the events as the plugin recorded them. */
+export type Folding = {
+  /** Items on the ground are no holder: "mined -> item entity -> picked up" reads "mined -> player" (see `foldDrops`) */
+  drops: boolean
+  /** Creatures and containers of one type are one plate */
+  groups: boolean
+  /** Items passed back and forth between two holders are one link with what is left */
+  netting: boolean
+}
+
+export const FOLD_ALL: Folding = { drops: true, groups: true, netting: true }
+
 export type NodeKind = "holder" | "origin" | "sink"
 
 export type GraphNode = {
@@ -230,9 +242,15 @@ function groupMembers(report: Report, events: ReportEvent[]): Map<string, Map<st
 }
 
 /**
- * `expanded` lists the groups (by id) shown as separate holders instead of one plate.
+ * `expanded` lists the groups (by id) shown as separate holders instead of one plate. Drops are folded before the
+ * graph, in the report (`foldDrops`); `folding` covers the rest.
  */
-export function buildGraph(report: Report, filters: Filters, expanded: ReadonlySet<string> = NO_GROUPS): Graph {
+export function buildGraph(
+  report: Report,
+  filters: Filters,
+  expanded: ReadonlySet<string> = NO_GROUPS,
+  folding: Folding = FOLD_ALL,
+): Graph {
   const nodes = new Map<string, GraphNode>()
   const edges = new Map<string, GraphEdge>()
   const byNode = new Map<string, ReportEvent[]>()
@@ -244,7 +262,7 @@ export function buildGraph(report: Report, filters: Filters, expanded: ReadonlyS
   const folded = new Map<string, string>()
   /** Holders shown on their own from an expanded group */
   const groupOf = new Map<string, string>()
-  for (const [key, members] of groupMembers(report, events)) {
+  for (const [key, members] of folding.groups ? groupMembers(report, events) : []) {
     const id = groupId(key)
     const open = expanded.has(id)
     const list = [...members.values()].sort((a, b) => b.from - a.from) // newest first, like the events
@@ -367,7 +385,7 @@ export function buildGraph(report: Report, filters: Filters, expanded: ReadonlyS
   }
 
   const counterparties = counterpartiesOf(report.query.root, edges)
-  netPairs(edges, byEdge)
+  if (folding.netting) netPairs(edges, byEdge)
 
   return { nodes: [...nodes.values()], counterparties, groups, folded, edges: [...edges.values()], byNode, byEdge, events }
 }

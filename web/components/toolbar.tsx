@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { formatIn, holderDetail, itemName } from "@/lib/format"
-import type { Filters } from "@/lib/graph"
+import type { Filters, Folding } from "@/lib/graph"
 import type { Report } from "@/lib/report"
 
 const ALL = "all"
@@ -42,6 +42,12 @@ function Pick({
 
 export type View = "board" | "table"
 
+const FOLDS: { key: keyof Folding; label: string; hint: string }[] = [
+  { key: "drops", label: "Fold drops", hint: "Show items taken from the ground as moving straight to whoever took them" },
+  { key: "groups", label: "Group similar", hint: "Show many mobs, chests or boxes of one type as one plate" },
+  { key: "netting", label: "Net two-way", hint: "Show items passed back and forth between two holders as one link with what is left" },
+]
+
 type Props = {
   report: Report
   /** The table lists a player's counterparties; other roots only have the board */
@@ -50,9 +56,11 @@ type Props = {
   facets: { items: string[]; causes: string[] }
   filters: Filters
   onFilters: (filters: Filters) => void
+  folding: Folding
+  onFolding: (folding: Folding) => void
 }
 
-export function Toolbar({ report, view, onView, facets, filters, onFilters }: Props) {
+export function Toolbar({ report, view, onView, facets, filters, onFilters, folding, onFolding }: Props) {
   const root = report.holders[report.query.root]?.label ?? report.query.root
   return (
     <header className="flex flex-wrap items-center gap-x-6 gap-y-3 border-b border-border bg-card px-4 py-3">
@@ -105,6 +113,14 @@ export function Toolbar({ report, view, onView, facets, filters, onFilters }: Pr
           />
           Suspicious only
         </label>
+        <div className="flex flex-wrap items-center gap-3" role="group" aria-label="Folding">
+          {FOLDS.map(({ key, label, hint }) => (
+            <label key={key} title={hint} className="flex items-center gap-2 text-sm">
+              <Switch checked={folding[key]} onCheckedChange={(on) => onFolding({ ...folding, [key]: on })} />
+              {label}
+            </label>
+          ))}
+        </div>
       </div>
     </header>
   )

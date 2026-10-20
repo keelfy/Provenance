@@ -199,3 +199,17 @@ test("counterparties list what came from and went to the root, before the traffi
   expect(Object.fromEntries(rows[0].received)).toEqual({ "minecraft:stone": 1728 })
   expect(Object.fromEntries(rows[0].gave)).toEqual({ "minecraft:stone": 1728 })
 })
+
+test("with grouping off, a base of chests is a node each and a pair that nets out stays two-way", () => {
+  const off = { drops: true, groups: false, netting: true }
+  expect(buildGraph(chests(8), NO_FILTERS, new Set(), off).nodes).toHaveLength(10)
+  expect(buildGraph(packing(8), NO_FILTERS, new Set(), off).nodes).toHaveLength(9)
+})
+
+test("with netting off, both directions of a pair keep their own traffic", () => {
+  const g = buildGraph(packing(1), NO_FILTERS, new Set(), { drops: true, groups: true, netting: false })
+  expect(g.edges.map((x) => [x.id, x.amount, x.settled]).sort()).toEqual([
+    [`PLAYER/bob>${SHULKER(0)}`, 1728, undefined],
+    [`${SHULKER(0)}>PLAYER/bob`, 1728, undefined],
+  ])
+})
