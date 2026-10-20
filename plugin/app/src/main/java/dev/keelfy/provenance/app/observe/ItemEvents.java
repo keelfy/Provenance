@@ -30,12 +30,14 @@ public final class ItemEvents {
             return;
         }
 
-        if (!reconciler.isSettling(player)) {
-            // Reconcile against the state before the drop.
-            val before = player.holdings();
-            dropped.forEach((item, amount) -> before.merge(item, amount, Long::sum));
-            ledger.reconcile(Cause.RECONCILE, player.holder(), before, player.mintOrigin());
+        if (reconciler.deferDrop(player, entity, dropped)) {
+            return;
         }
+
+        // Reconcile against the state before the drop.
+        val before = player.holdings();
+        dropped.forEach((item, amount) -> before.merge(item, amount, Long::sum));
+        ledger.reconcile(Cause.RECONCILE, player.holder(), before, player.mintOrigin());
         ledger.transfer(Cause.DROP, player.holder(), entity, dropped);
     }
 

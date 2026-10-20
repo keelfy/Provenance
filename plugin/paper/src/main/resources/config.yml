@@ -13,6 +13,16 @@ journal:
   automation-retention-days: 3
 
 storage:
+  # Where the data is kept: sqlite (a file in the plugin folder, nothing else to set up), mysql (MySQL or MariaDB) or
+  # postgresql. Switching does not move existing data.
+  type: sqlite
+  # mysql and postgresql only. The database must exist and the user must be able to create tables in it.
+  host: localhost
+  # 0 means the default port of the type: 3306 for mysql, 5432 for postgresql.
+  port: 0
+  database: provenance
+  username: ""
+  password: ""
   # How often changed holders are snapshotted and handed to the writer thread.
   flush-interval-seconds: 30
   # How often journal entries past their retention are dropped.

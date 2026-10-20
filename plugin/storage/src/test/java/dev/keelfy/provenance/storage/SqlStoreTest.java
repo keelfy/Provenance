@@ -15,6 +15,7 @@ import dev.keelfy.provenance.core.model.OriginId;
 import dev.keelfy.provenance.core.taint.TaintVector;
 import java.nio.file.Path;
 import java.sql.DriverManager;
+import java.sql.SQLException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -27,7 +28,7 @@ import lombok.val;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-class SqliteStoreTest {
+class SqlStoreTest {
 
     private static final Cause CAUSE = Cause.CONTAINER;
     private static final Retention RETENTION = new Retention(Duration.ofDays(30), Duration.ofDays(3));
@@ -48,12 +49,12 @@ class SqliteStoreTest {
         ledger.mint(CAUSE, chest, DIAMOND, 10, OriginId.MOB);
         ledger.transfer(CAUSE, chest, bob, DIAMOND, 5);
 
-        try (val store = new SqliteStore(dir.resolve("a.db"), RETENTION, BUCKET)) {
+        try (val store = store("a.db")) {
             store.write(ledger.drainChanges());
         }
 
         val restored = new Ledger();
-        try (val store = new SqliteStore(dir.resolve("a.db"), RETENTION, BUCKET)) {
+        try (val store = store("a.db")) {
             store.load(restored);
         }
 
@@ -70,7 +71,7 @@ class SqliteStoreTest {
         val ledger = new Ledger();
         ledger.mint(CAUSE, chest, DIAMOND, 3, alice);
 
-        try (val store = new SqliteStore(dir.resolve("b.db"), RETENTION, BUCKET)) {
+        try (val store = store("b.db")) {
             store.write(ledger.drainChanges());
             ledger.clear(CAUSE, chest);
             store.write(ledger.drainChanges());
@@ -148,14 +149,14 @@ class SqliteStoreTest {
         ledger.transfer(CAUSE, chest, bob, DIAMOND, 4);
         val tail = ledger.drainChanges();
 
-        try (val store = new SqliteStore(dir.resolve("c.db"), RETENTION, BUCKET)) {
+        try (val store = store("c.db")) {
             store.write(head);
             // Simulates a crash between journal and snapshot: only the events of the tail reach the journal.
             store.write(new LedgerChanges(Map.of(), List.of(), tail.events(), head.lastSeq()));
         }
 
         val restored = new Ledger();
-        try (val store = new SqliteStore(dir.resolve("c.db"), RETENTION, BUCKET)) {
+        try (val store = store("c.db")) {
             store.load(restored);
         }
 
@@ -179,7 +180,7 @@ class SqliteStoreTest {
         ledger.convert(Cause.CRAFT, bob, Map.of(DIAMOND, 3L, stick, 2L), Map.of(pickaxe, 1L));
         ledger.transfer(CAUSE, bob, chest, DIAMOND, 2);
 
-        try (val store = new SqliteStore(dir.resolve("d.db"), RETENTION, BUCKET)) {
+        try (val store = store("d.db")) {
             store.write(ledger.drainChanges());
 
             assertThat(store.history(bob, null, 10)).extracting(Envelope::seq).containsExactly(4L, 3L, 2L, 1L);
@@ -214,7 +215,7 @@ class SqliteStoreTest {
         ledger.transfer(CAUSE, carol, dave, DIAMOND, 1); // 5
         ledger.mint(Cause.LOOT, chest, stick, 2, OriginId.LOOT); // 6
 
-        try (val store = new SqliteStore(dir.resolve("g.db"), RETENTION, BUCKET)) {
+        try (val store = store("g.db")) {
             store.write(ledger.drainChanges());
 
             // Hop 1: bob's own events; hop 2 adds the chest's; carol and dave stay out of reach.
@@ -259,7 +260,7 @@ class SqliteStoreTest {
         ledger.transfer(Cause.DROP, first, second, DIAMOND, 1); // 2: the stacks merge
         ledger.transfer(Cause.PICKUP, second, bob, DIAMOND, 1); // 3
 
-        try (val store = new SqliteStore(dir.resolve("m.db"), RETENTION, BUCKET)) {
+        try (val store = store("m.db")) {
             store.write(ledger.drainChanges());
 
             assertThat(store.trace(bob, null, 0, 1, 100).events())
@@ -278,7 +279,7 @@ class SqliteStoreTest {
         ledger.transfer(CAUSE, oldChest, villager, DIAMOND, 4);
         ledger.mint(CAUSE, furnace, DIAMOND, 1, alice);
 
-        try (val store = new SqliteStore(dir.resolve("l.db"), RETENTION, BUCKET)) {
+        try (val store = store("l.db")) {
             store.write(ledger.drainChanges());
             val events = store.trace(chest, null, 0, 2, 10).events();
 
@@ -303,7 +304,7 @@ class SqliteStoreTest {
         ledger.mint(Cause.MINE, chest, DIAMOND, 5, OriginId.UNKNOWN); // minted: durable
         ledger.transfer(Cause.HOPPER, chest, hopperTarget, DIAMOND, 1); // automation, 10 days old
 
-        try (val store = new SqliteStore(dir.resolve("e.db"), RETENTION, BUCKET)) {
+        try (val store = store("e.db")) {
             store.write(ledger.drainChanges());
             // Back-to-back moves merge within a batch, so the newer one needs its own.
             clock.set(now - 2 * day);
@@ -334,7 +335,7 @@ class SqliteStoreTest {
         ledger.transfer(CAUSE, bob, chest, cobble, 10);
         ledger.transfer(CAUSE, bob, chest, cobble, 10);
 
-        try (val store = new SqliteStore(dir.resolve("k.db"), RETENTION, BUCKET)) {
+        try (val store = store("k.db")) {
             store.write(ledger.drainChanges());
 
             // The bucket has not ended yet.
@@ -365,7 +366,7 @@ class SqliteStoreTest {
         }
 
         val restored = new Ledger();
-        try (val store = new SqliteStore(dir.resolve("k.db"), RETENTION, BUCKET)) {
+        try (val store = store("k.db")) {
             store.load(restored);
         }
         assertThat(restored.getCount(bob, cobble)).isEqualTo(982);
@@ -401,7 +402,7 @@ class SqliteStoreTest {
             ledger.transfer(Cause.PICKUP, drop, carol, flesh, 1);
         }
 
-        try (val store = new SqliteStore(dir.resolve("z.db"), RETENTION, BUCKET)) {
+        try (val store = store("z.db")) {
             store.write(ledger.drainChanges());
             store.compact(12 * hour);
 
@@ -427,8 +428,7 @@ class SqliteStoreTest {
 
     @Test
     void databaseOfAnotherSchemaVersionIsDropped() throws Exception {
-        val url = "jdbc:sqlite:" + dir.resolve("f.db");
-        try (val connection = DriverManager.getConnection(url);
+        try (val connection = DriverManager.getConnection("jdbc:sqlite:" + dir.resolve("f.db"));
                 val statement = connection.createStatement()) {
             statement.execute("CREATE TABLE pool (legacy TEXT)");
             statement.execute("PRAGMA user_version=1");
@@ -436,8 +436,16 @@ class SqliteStoreTest {
 
         val ledger = new Ledger();
         ledger.mint(CAUSE, chest, DIAMOND, 1, alice);
-        try (val store = new SqliteStore(url, RETENTION, BUCKET)) {
+        try (val store = store("f.db")) {
             store.write(ledger.drainChanges());
+
+            val restored = new Ledger();
+            store.load(restored);
+            assertThat(restored.getCount(chest, DIAMOND)).isEqualTo(1);
         }
+    }
+
+    private SqlStore store(String file) throws SQLException {
+        return new SqlStore(Database.sqlite(file), dir, RETENTION, BUCKET);
     }
 }

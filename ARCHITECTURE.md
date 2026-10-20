@@ -79,7 +79,11 @@ Creative-игрок минтит `CREATIVE` вместо `UNKNOWN`.
 ## 4. Хранение и потоки
 
 - Ledger в памяти, меняется только на главном потоке.
-- SQLite (драйвер поставляет Paper), `plugins/Provenance/provenance.db`, WAL:
+- SQL через пул HikariCP (`SqlStore`, диалект — `Dialect`): SQLite (по умолчанию, `plugins/Provenance/provenance.db`, WAL,
+  драйвер поставляет Paper), MySQL/MariaDB или PostgreSQL (`storage.type/host/port/database/username/password` в
+  `config.yml`). HikariCP и драйверы MariaDB/PostgreSQL подтягивает `ProvenanceLoader`. Доступ последовательный (поток
+  записи), пул нужен ради замены оборванных соединений: 1 соединение для SQLite, 2 для остальных. Версия схемы — в
+  `schema_version`; при несовпадении таблицы пересоздаются. Таблицы:
   `pool(holder_kind, holder_id, item, count, origin, custody)`, `flow(from_origin, to_origin, item, amount)`;
   вектор — текст `origin=share;…`. Дней в `flow` нет: суммы накопительные.
 - `Ledger` помечает тронутые holder'ы и рёбра `FlowGraph`; `drainChanges()` отдаёт неизменяемый снимок
@@ -106,7 +110,7 @@ Creative-игрок минтит `CREATIVE` вместо `UNKNOWN`.
 - Подряд идущие `Transferred` блок ↔ блок с одной причиной, парой холдеров и предметом (тикающая воронка) `Journal`
   склеивает в одно событие, пока оно не ушло в запись: `seq` остаётся сплошным, `time` берётся от первого.
   Включено по умолчанию, отключается `journal.merge-automation: false` в `config.yml`.
-- Бакеты (`journal.bucket-minutes`, по умолчанию 60): когда бакет закончился (+10 мин на опоздавшие предметы), `SqliteStore.compact`
+- Бакеты (`journal.bucket-minutes`, по умолчанию 60): когда бакет закончился (+10 мин на опоздавшие предметы), `SqlStore.compact`
   (поток записи, раз в бакет) складывает в одну строку события, равные во всём, кроме времени и количества
   (`Bucketing`): `seq` и `time` от первого, `until` — время последнего. Место события — `chunk` (`world:x:z`, колонка
   16×16): у блока из координат id, у сущности из `HolderMeta.chunk` на момент события; события разных чанков не
@@ -141,7 +145,7 @@ core/taint/    TaintVector (зависит от model)
 core/event/    LedgerEvent, Envelope (зависят от model, taint)
 core/analysis/ Correlation, Link — только чтение Ledger
                Зависимости строго вниз: analysis → core → event → taint → model
-storage/   SqliteStore (ChangeSink), WriteBehind, VectorCodec — чистый JDBC, без Bukkit
+storage/   SqlStore (ChangeSink), Dialect, Database, WriteBehind, VectorCodec — JDBC + HikariCP, без Bukkit
 app/       Логика плагина без платформы (anti-corruption layer): повтор под другое ядро = новый адаптер, не новая логика.
            Settings (через ConfigSource), ProvenanceStorage, inventory/{InventoryReconciler, ViewTarget, ViewKind},
            world/{SpawnContexts, SpawnSource, WorldPos, ItemDrop},
@@ -160,7 +164,7 @@ paper/     Адаптер Bukkit/Paper: PaperScheduler, PaperLog, PaperConfig, P
 1. **Каркас + core** — Gradle, загрузка плагина, математика ledger'а, unit-тесты. ✅
 2. **Paper-слой** — holders, origin-слушатели, diff, земля, воронки, крафт/плавка, reconcile. ✅
    Проверено на `runServer` консолью (воронки, печь, дроп моба → воронка). Сценарии с игроками — на этапе 5.
-3. **Хранение** — SQLite, write-behind. ✅ Тесты: round-trip, удаление, повтор батча.
+3. **Хранение** — SQLite/MySQL/PostgreSQL, write-behind. ✅ Тесты: round-trip, удаление, повтор батча.
    Проверено на `runServer`: запись при остановке, загрузка при старте.
 4. **Команды** — `/prov …`. ✅ Проверен запуск и ошибки с консоли; вывод с данными — на этапе 5.
 5. **Ручная приёмка** на `runServer` по сценариям ниже.

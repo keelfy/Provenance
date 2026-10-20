@@ -6,7 +6,7 @@ import dev.keelfy.provenance.core.Ledger;
 import dev.keelfy.provenance.core.event.Envelope;
 import dev.keelfy.provenance.core.model.Holder;
 import dev.keelfy.provenance.core.model.ItemKey;
-import dev.keelfy.provenance.storage.SqliteStore;
+import dev.keelfy.provenance.storage.SqlStore;
 import dev.keelfy.provenance.storage.Trace;
 import dev.keelfy.provenance.storage.WriteBehind;
 import java.io.IOException;
@@ -39,8 +39,7 @@ public class ProvenanceStorage {
     public boolean open() {
         try {
             Files.createDirectories(dataDirectory);
-            val store =
-                    new SqliteStore(dataDirectory.resolve("provenance.db"), settings.retention(), settings.bucket());
+            val store = new SqlStore(settings.database(), dataDirectory, settings.retention(), settings.bucket());
             store.load(ledger);
             writer = new WriteBehind(
                     store, e -> log.severe("Storage write failed, will retry: " + e), settings.shutdownTimeout());

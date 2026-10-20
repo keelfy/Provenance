@@ -1,6 +1,8 @@
 package dev.keelfy.provenance.app;
 
 import dev.keelfy.provenance.app.port.ConfigSource;
+import dev.keelfy.provenance.storage.Database;
+import dev.keelfy.provenance.storage.Dialect;
 import dev.keelfy.provenance.storage.Retention;
 import java.time.Duration;
 import lombok.val;
@@ -12,6 +14,7 @@ import lombok.val;
  */
 public record Settings(
         boolean mergeAutomation,
+        Database database,
         Retention retention,
         Duration bucket,
         long flushTicks,
@@ -36,6 +39,7 @@ public record Settings(
         int webMaxEvents) {
 
     private static final int TICKS_PER_SECOND = 20;
+    private static final String DATABASE_FILE = "provenance.db";
 
     /** @throws IllegalArgumentException if a value is not positive */
     public static Settings from(ConfigSource config) {
@@ -43,6 +47,7 @@ public record Settings(
         val hours = 3600L * TICKS_PER_SECOND;
         return new Settings(
                 config.getBoolean("journal.merge-automation"),
+                database(config),
                 new Retention(
                         Duration.ofDays(whole(config, "journal.retention-days")),
                         Duration.ofDays(whole(config, "journal.automation-retention-days"))),
@@ -67,6 +72,22 @@ public record Settings(
                 (int) whole(config, "web.ttl-hours"),
                 (int) whole(config, "web.depth"),
                 (int) whole(config, "web.max-events"));
+    }
+
+    private static Database database(ConfigSource config) {
+        val dialect = Dialect.parse(config.getString("storage.type", "sqlite"));
+        if (dialect == Dialect.SQLITE) {
+            return Database.sqlite(DATABASE_FILE);
+        }
+
+        val port = config.getLong("storage.port");
+        return new Database(
+                dialect,
+                config.getString("storage.host", "localhost").trim(),
+                (int) (port > 0 ? port : dialect.defaultPort()),
+                config.getString("storage.database", "provenance").trim(),
+                config.getString("storage.username", "").trim(),
+                config.getString("storage.password", ""));
     }
 
     /** An empty endpoint or secret switches the web viewer off. */

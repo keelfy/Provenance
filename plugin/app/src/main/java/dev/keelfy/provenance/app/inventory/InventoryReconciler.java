@@ -7,9 +7,13 @@ import dev.keelfy.provenance.app.port.Scheduler;
 import dev.keelfy.provenance.core.Ledger;
 import dev.keelfy.provenance.core.Settlement;
 import dev.keelfy.provenance.core.model.Cause;
+import dev.keelfy.provenance.core.model.Holder;
 import dev.keelfy.provenance.core.model.ItemKey;
 import dev.keelfy.provenance.core.model.OriginId;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -24,6 +28,9 @@ public final class InventoryReconciler {
     private final Ledger ledger;
     private final Settings settings;
     private final Set<UUID> pending = new HashSet<>();
+    private final Map<UUID, List<Drop>> drops = new HashMap<>();
+
+    private record Drop(Holder entity, Map<ItemKey, Long> items) {}
 
     public InventoryReconciler(Scheduler scheduler, PlayerDirectory players, Ledger ledger, Settings settings) {
         this.scheduler = scheduler;
@@ -104,9 +111,28 @@ public final class InventoryReconciler {
         return pending.contains(player.id());
     }
 
+    /**
+     * An item entity was dropped while the player's interaction is still being settled, e.g. a stack thrown straight
+     * out of a chest. The items have not reached the player's ledger account yet, so the drop is booked after the
+     * settlement, once they have.
+     *
+     * @return {@code false} if nothing is being settled and the caller books the drop itself
+     */
+    public boolean deferDrop(OnlinePlayer player, Holder entity, Map<ItemKey, Long> dropped) {
+        if (!isSettling(player)) {
+            return false;
+        }
+        drops.computeIfAbsent(player.id(), id -> new ArrayList<>()).add(new Drop(entity, dropped));
+        return true;
+    }
+
     private void settle(OnlinePlayer player, ViewTarget target) {
         val holder = player.holder();
         val actual = player.holdings();
+        val dropped = drops.getOrDefault(player.id(), List.of());
+        drops.remove(player.id());
+        // what was thrown out counts as still held until the drop is booked below
+        dropped.forEach(drop -> drop.items().forEach((item, amount) -> actual.merge(item, amount, Long::sum)));
 
         switch (target.kind()) {
             case CONTAINER ->
@@ -120,5 +146,7 @@ public final class InventoryReconciler {
             case MERCHANT -> ledger.reconcile(Cause.TRADE, holder, actual, OriginId.TRADE);
             case SELF -> ledger.reconcile(Cause.RECONCILE, holder, actual, player.mintOrigin());
         }
+
+        dropped.forEach(drop -> ledger.transfer(Cause.DROP, holder, drop.entity(), drop.items()));
     }
 }

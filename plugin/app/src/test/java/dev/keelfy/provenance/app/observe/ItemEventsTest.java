@@ -11,6 +11,7 @@ import dev.keelfy.provenance.core.model.Cause;
 import dev.keelfy.provenance.core.model.Holder;
 import dev.keelfy.provenance.core.model.ItemKey;
 import dev.keelfy.provenance.core.model.OriginId;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import lombok.val;
@@ -40,15 +41,20 @@ class ItemEventsTest {
     }
 
     @Test
-    void droppingDuringSettlementLeavesReconciliationToIt() {
-        reconciler.track(alice, ViewTarget.container(null, () -> Map.of()));
-        alice.items.put(DIAMOND, 1L);
+    void stackThrownOutOfAChestIsBookedAsChestToPlayerToEntity() {
+        val chest = Holder.block("world", 0, 64, 0);
+        ledger.mint(Cause.PLACE, chest, DIAMOND, 10, OriginId.WORLD);
+        val inChest = new HashMap<ItemKey, Long>(Map.of(DIAMOND, 10L));
+        reconciler.track(alice, ViewTarget.container(chest, () -> new HashMap<>(inChest)));
 
-        items.dropped(alice, entity, Map.of(DIAMOND, 2L));
+        inChest.put(DIAMOND, 6L);
+        items.dropped(alice, entity, Map.of(DIAMOND, 4L)); // thrown straight from the chest slot, same tick
+        scheduler.tick();
 
-        // nothing was reconciled, so the transfer was capped by what the ledger knew: the shortfall is a mint
-        assertThat(ledger.getCount(entity, DIAMOND)).isEqualTo(2);
+        assertThat(ledger.getCount(chest, DIAMOND)).isEqualTo(6);
         assertThat(ledger.getCount(alice.holder(), DIAMOND)).isZero();
+        assertThat(ledger.getCount(entity, DIAMOND)).isEqualTo(4);
+        assertThat(ledger.pool(entity, DIAMOND).getOrigin().shares()).containsOnlyKeys(OriginId.WORLD);
     }
 
     @Test
