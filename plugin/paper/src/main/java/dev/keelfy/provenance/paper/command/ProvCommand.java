@@ -24,8 +24,8 @@ import org.jspecify.annotations.Nullable;
 
 /**
  * {@code /prov hand | block | player <name> | links [name] | history block | history player <name> [item]} and
- * {@code /prov web history ... | revoke <token>}, {@code /prov reload}: parses the command and checks permissions,
- * {@link ProvService} does the rest.
+ * {@code /prov web history ... | history hand | revoke <token>}, {@code /prov reload}: parses the command and checks
+ * permissions, {@link ProvService} does the rest.
  *
  * @author keelfy
  */
@@ -69,9 +69,12 @@ public final class ProvCommand {
                 .then(Commands.literal("web")
                         .requires(source -> source.getSender().hasPermission(WEB_PERMISSION))
                         .then(history(
-                                (sender, context) -> services.get().webHistoryBlock(sender),
-                                (sender, context) ->
-                                        services.get().webHistoryPlayer(sender, name(context), item(context))))
+                                        (sender, context) -> services.get().webHistoryBlock(sender),
+                                        (sender, context) ->
+                                                services.get().webHistoryPlayer(sender, name(context), item(context)))
+                                .then(Commands.literal("hand")
+                                        .executes(run((sender, context) ->
+                                                services.get().webHistoryHand(sender)))))
                         .then(Commands.literal("revoke")
                                 .then(Commands.argument(TOKEN_ARG, StringArgumentType.word())
                                         .executes(run((sender, context) -> services.get()

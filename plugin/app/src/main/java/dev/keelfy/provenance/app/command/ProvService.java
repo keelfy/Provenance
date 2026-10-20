@@ -24,9 +24,10 @@ import org.jspecify.annotations.Nullable;
 
 /**
  * What {@code /prov hand | block | player <name> | links [name] | history block | history player <name> [item]} do:
- * read-only views over the ledger and its journal. {@code web history ...} posts the same history as a snapshot to the
- * web viewer and prints a one-time link; {@code web revoke <token>} kills a link. The platform parses the command and
- * checks permissions; every method answers through the {@link Sender} and returns whether it succeeded.
+ * read-only views over the ledger and its journal. {@code web history ...} (also {@code web history hand}) posts the
+ * same history as a snapshot to the web viewer and prints a one-time link; {@code web revoke <token>} kills a link. The
+ * platform parses the command and checks permissions; every method answers through the {@link Sender} and returns
+ * whether it succeeded.
  *
  * @author keelfy
  */
@@ -76,12 +77,11 @@ public final class ProvService {
             return false;
         }
 
-        val key = player.mainHand();
+        val key = held(sender, player);
         if (key == null) {
-            return error(sender, "Main hand is empty");
+            return false;
         }
 
-        reconciler.reconcile(player);
         val pool = ledger.pool(player.holder(), key);
         if (pool == null) {
             return error(sender, "No tracked " + key.key());
@@ -181,6 +181,17 @@ public final class ProvService {
         return publish(sender, "history.player", Holder.player(target.playerId()), itemKey(item));
     }
 
+    /** The item in the main hand, traced through the sender's own holder. */
+    public boolean webHistoryHand(Sender sender) {
+        val player = playerOnly(sender);
+        if (player == null) {
+            return false;
+        }
+
+        val key = held(sender, player);
+        return key != null && publish(sender, "history.player", player.holder(), key);
+    }
+
     public boolean webRevoke(Sender sender, String token) {
         if (!settings.webEnabled()) {
             return error(sender, WEB_OFF);
@@ -260,6 +271,18 @@ public final class ProvService {
 
     private void onMain(Runnable action) {
         scheduler.runNextTick(action);
+    }
+
+    /** The main-hand item after reconciling the inventory, so the ledger is current; reports an empty hand. */
+    private @Nullable ItemKey held(Sender sender, OnlinePlayer player) {
+        val key = player.mainHand();
+        if (key == null) {
+            error(sender, "Main hand is empty");
+            return null;
+        }
+
+        reconciler.reconcile(player);
+        return key;
     }
 
     private @Nullable Holder lookedAtContainer(Sender sender) {

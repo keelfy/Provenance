@@ -55,10 +55,42 @@ class ProvServiceTest {
         }
     };
 
+    private final Sender aliceSender = new Sender() {
+        @Override
+        public void send(Line line) {
+            consoleSender.send(line);
+        }
+
+        @Override
+        public @Nullable OnlinePlayer player() {
+            return alice;
+        }
+    };
+
     @Test
     void handIsForPlayersOnly() {
         assertThat(service.hand(consoleSender)).isFalse();
         assertThat(console).containsExactly("Players only");
+    }
+
+    @Test
+    void webHistoryHandIsForPlayersOnly() {
+        assertThat(service.webHistoryHand(consoleSender)).isFalse();
+        assertThat(console).containsExactly("Players only");
+    }
+
+    @Test
+    void webHistoryHandNeedsAnItemInHand() {
+        assertThat(service.webHistoryHand(aliceSender)).isFalse();
+        assertThat(console).containsExactly("Main hand is empty");
+    }
+
+    @Test
+    void webHistoryHandReachesPublishingOnceAnItemIsHeld() {
+        alice.items.put(DIAMOND, 1L);
+
+        assertThat(service.webHistoryHand(aliceSender)).isFalse();
+        assertThat(console).containsExactly("Web viewer is off: set web.endpoint and web.secret in config.yml");
     }
 
     @Test
