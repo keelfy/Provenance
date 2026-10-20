@@ -6,14 +6,20 @@ import dev.keelfy.provenance.app.Fakes;
 import dev.keelfy.provenance.app.inventory.InventoryReconciler;
 import dev.keelfy.provenance.app.port.OnlinePlayer;
 import dev.keelfy.provenance.app.port.PlayerDirectory;
+import dev.keelfy.provenance.app.port.PlayerSync;
 import dev.keelfy.provenance.core.Ledger;
 import dev.keelfy.provenance.core.event.Envelope;
+import dev.keelfy.provenance.core.event.LedgerEvent;
 import dev.keelfy.provenance.core.event.LedgerEvent.Minted;
+import dev.keelfy.provenance.core.event.PoolState;
 import dev.keelfy.provenance.core.model.Cause;
+import dev.keelfy.provenance.core.model.Holder;
 import dev.keelfy.provenance.core.model.ItemKey;
 import dev.keelfy.provenance.core.model.OriginId;
+import dev.keelfy.provenance.core.taint.TaintVector;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import lombok.val;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
@@ -28,7 +34,7 @@ class ProvServiceTest {
     private final PlayerDirectory directory = Fakes.directory(alice);
     private final ProvService service = new ProvService(
             ledger,
-            new InventoryReconciler(scheduler, directory, ledger, Fakes.settings()),
+            new InventoryReconciler(scheduler, directory, ledger, Fakes.settings(), PlayerSync.NONE),
             null,
             null,
             directory,
@@ -86,5 +92,19 @@ class ProvServiceTest {
         assertThat(line.spans()).extracting(Span::tone).containsExactly(Tone.DIM, Tone.ALERT);
         assertThat(line.spans().get(0).text()).isEqualTo("2m mine ");
         assertThat(line.spans().get(1).text()).isEqualTo("+3 diamond into Alice (unknown)");
+    }
+
+    @Test
+    void syncedInventoryReadsAsArrivalNotAsAnAlert() {
+        val labels = new Labels(directory);
+        val pools = Map.of(DIAMOND, new PoolState(4, TaintVector.of(OriginId.UNKNOWN), TaintVector.EMPTY));
+        val synced = new LedgerEvent.Synced(alice.holder(), Holder.server("farm"), pools);
+        val envelope = new Envelope(1, 0, 0, Cause.SYNC, synced, null, "survival");
+
+        val line = new HistoryView(labels).line(envelope, 120_000, 3);
+
+        assertThat(line.spans()).extracting(Span::tone).containsExactly(Tone.DIM, Tone.PLAIN);
+        assertThat(line.spans().get(0).text()).isEqualTo("2m [survival] sync ");
+        assertThat(line.spans().get(1).text()).isEqualTo("Alice arrived from server farm with 4 items");
     }
 }

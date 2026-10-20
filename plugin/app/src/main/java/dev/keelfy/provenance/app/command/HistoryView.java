@@ -2,6 +2,7 @@ package dev.keelfy.provenance.app.command;
 
 import dev.keelfy.provenance.core.event.Envelope;
 import dev.keelfy.provenance.core.event.LedgerEvent;
+import dev.keelfy.provenance.core.event.PoolState;
 import dev.keelfy.provenance.core.model.ItemKey;
 import dev.keelfy.provenance.core.model.OriginId;
 import java.util.Map;
@@ -27,7 +28,10 @@ public final class HistoryView {
     public Line line(Envelope envelope, long now, int top) {
         val event = envelope.event();
         return Line.of(
-                new Span(age(now - envelope.time()) + " " + envelope.cause().key() + " ", Tone.DIM),
+                new Span(
+                        age(now - envelope.time()) + " " + origin(envelope)
+                                + envelope.cause().key() + " ",
+                        Tone.DIM),
                 new Span(describe(event, top), suspicious(event) ? Tone.ALERT : Tone.PLAIN));
     }
 
@@ -49,7 +53,17 @@ public final class HistoryView {
             case LedgerEvent.Converted e ->
                 labels.of(e.holder()) + " " + items(e.inputs()) + " => " + items(e.outputs());
             case LedgerEvent.Cleared e -> labels.of(e.holder()) + " cleared";
+            case LedgerEvent.Synced e ->
+                labels.of(e.holder()) + " arrived from " + labels.of(e.from()) + " with "
+                        + e.pools().values().stream()
+                                .mapToLong(PoolState::count)
+                                .sum() + " items";
         };
+    }
+
+    /** {@code [farm] } for what another server of a shared database journaled. */
+    private static String origin(Envelope envelope) {
+        return envelope.server() == null ? "" : "[" + envelope.server() + "] ";
     }
 
     private String items(Map<ItemKey, Long> items) {

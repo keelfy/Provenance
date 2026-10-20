@@ -4,6 +4,12 @@ main: dev.keelfy.provenance.ProvenancePlugin
 api-version: '26.3'
 loader: dev.keelfy.provenance.ProvenanceLoader
 description: Probabilistic item provenance and player correlation
+dependencies:
+  server:
+    HuskSync:
+      load: BEFORE
+      required: false
+      join-classpath: true
 permissions:
   provenance.admin:
     description: Use /prov

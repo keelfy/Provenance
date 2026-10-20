@@ -127,4 +127,44 @@ class LedgerTest {
                 .extracting(Link::other)
                 .containsExactlyInAnyOrder(bobOrigin, carolOrigin);
     }
+
+    @Test
+    void syncReplacesPoolsWithTheOnesFromOtherServer() {
+        val farm = Holder.server("farm");
+        val source = new Ledger();
+        source.mint(CAUSE, chest, DIAMOND, 10, OriginId.UNKNOWN);
+        source.mint(CAUSE, bob, DIAMOND, 10, bobOrigin);
+        source.transfer(CAUSE, bob, alice, DIAMOND, 6);
+
+        ledger.mint(CAUSE, alice, DIAMOND_BLOCK, 3, aliceOrigin);
+        ledger.sync(alice, farm, source.snapshot(alice));
+
+        assertThat(ledger.getCount(alice, DIAMOND)).isEqualTo(6);
+        assertThat(ledger.getCount(alice, DIAMOND_BLOCK)).isZero();
+        assertThat(ledger.pool(alice, DIAMOND).getOrigin().share(bobOrigin)).isCloseTo(1.0, within(1e-9));
+        assertThat(ledger.pool(alice, DIAMOND).getOrigin().share(OriginId.UNKNOWN))
+                .isZero();
+    }
+
+    @Test
+    void syncOfNothingIntoNothingIsNotJournaled() {
+        ledger.sync(alice, Holder.server("farm"), Map.of());
+
+        assertThat(ledger.drainChanges().events()).isEmpty();
+    }
+
+    @Test
+    void syncedStateSurvivesReplay() {
+        val source = new Ledger();
+        source.mint(CAUSE, alice, DIAMOND, 5, bobOrigin);
+        ledger.sync(alice, Holder.server("farm"), source.snapshot(alice));
+        val changes = ledger.drainChanges();
+
+        val rebuilt = new Ledger();
+        changes.events().forEach(rebuilt::replay);
+
+        assertThat(rebuilt.getCount(alice, DIAMOND)).isEqualTo(5);
+        assertThat(rebuilt.pool(alice, DIAMOND).getOrigin()).isEqualTo(TaintVector.of(bobOrigin));
+        assertThat(changes.holders().get(alice)).hasSize(1);
+    }
 }

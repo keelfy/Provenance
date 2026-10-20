@@ -1,0 +1,6 @@
+# Other plugins Provenance works with. An integration is used only if its plugin is installed and enabled here.
+
+husksync:
+  # Carry the origin of items along with the inventory HuskSync moves between servers of a network, so what a player
+  # takes from a chest on one server does not turn into unknown items on the next. Needs server.id in config.yml.
+  enabled: true

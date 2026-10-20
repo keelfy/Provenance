@@ -71,6 +71,7 @@ final class PoolProjection implements Projection {
             case LedgerEvent.Burned e -> burn(e.holder(), e.item(), e.amount());
             case LedgerEvent.Converted e -> convert(e);
             case LedgerEvent.Cleared e -> clear(e.holder());
+            case LedgerEvent.Synced e -> sync(e);
         }
     }
 
@@ -78,6 +79,16 @@ final class PoolProjection implements Projection {
         if (holders.remove(holder) != null) {
             dirty.add(holder);
         }
+    }
+
+    private void sync(LedgerEvent.Synced e) {
+        clear(e.holder());
+        e.pools().forEach((item, state) -> {
+            if (state.count() > 0) {
+                restore(e.holder(), new LedgerChanges.PoolRow(item, state.count(), state.origin(), state.custody()));
+                dirty.add(e.holder());
+            }
+        });
     }
 
     private void mint(Holder holder, ItemKey item, long amount, OriginId origin) {

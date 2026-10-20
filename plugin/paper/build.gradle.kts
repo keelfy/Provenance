@@ -4,6 +4,7 @@ plugins {
 
 repositories {
     maven("https://repo.papermc.io/repository/maven-public/")
+    maven("https://repo.william278.net/releases/")
 }
 
 dependencies {
@@ -13,6 +14,7 @@ dependencies {
     
     compileOnly("com.google.inject:guice:7.0.0")
     compileOnly("io.papermc.paper:paper-api:26.3.build.202-stable")
+    compileOnly("net.william278.husksync:husksync-bukkit:4.1.0+26.3")
 }
 
 base {

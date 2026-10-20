@@ -28,6 +28,7 @@ public record Cause(String key) {
     public static final Cause DESPAWN = new Cause("despawn");
     public static final Cause DESTROY = new Cause("destroy");
     public static final Cause RECONCILE = new Cause("reconcile");
+    public static final Cause SYNC = new Cause("sync");
 
     public Cause {
         Objects.requireNonNull(key, "key");

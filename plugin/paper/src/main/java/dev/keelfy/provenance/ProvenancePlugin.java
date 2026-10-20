@@ -3,11 +3,13 @@ package dev.keelfy.provenance;
 import com.google.inject.Guice;
 import com.google.inject.Injector;
 import dev.keelfy.provenance.app.DrainableScheduler;
+import dev.keelfy.provenance.app.Integrations;
 import dev.keelfy.provenance.app.ProvenanceStorage;
 import dev.keelfy.provenance.app.command.ProvService;
 import dev.keelfy.provenance.app.inventory.InventoryReconciler;
 import dev.keelfy.provenance.paper.PaperDirectory;
 import dev.keelfy.provenance.paper.command.ProvCommand;
+import dev.keelfy.provenance.paper.husksync.HuskSyncBridge;
 import dev.keelfy.provenance.paper.listener.AutomationListener;
 import dev.keelfy.provenance.paper.listener.InventoryListener;
 import dev.keelfy.provenance.paper.listener.ItemEntityListener;
@@ -23,6 +25,8 @@ import org.jspecify.annotations.Nullable;
 
 /** @author keelfy */
 public final class ProvenancePlugin extends JavaPlugin {
+
+    private static final String HUSKSYNC = "HuskSync";
 
     @SuppressWarnings("null")
     private Injector injector;
@@ -104,6 +108,15 @@ public final class ProvenancePlugin extends JavaPlugin {
         return null;
     }
 
+    /** HuskSync is optional: nothing here touches its classes unless it is running and switched on. */
+    public boolean usesHuskSync(Integrations integrations) {
+        return integrations.huskSync() && getServer().getPluginManager().isPluginEnabled(HUSKSYNC);
+    }
+
+    private boolean usesHuskSync() {
+        return usesHuskSync(injector.getInstance(Integrations.class));
+    }
+
     private void registerListeners() {
         val plugins = getServer().getPluginManager();
         plugins.registerEvents(injector.getInstance(InventoryListener.class), this);
@@ -111,6 +124,12 @@ public final class ProvenancePlugin extends JavaPlugin {
         plugins.registerEvents(injector.getInstance(WorldListener.class), this);
         plugins.registerEvents(injector.getInstance(AutomationListener.class), this);
         plugins.registerEvents(injector.getInstance(ShowcaseListener.class), this);
+
+        if (usesHuskSync()) {
+            val bridge = injector.getInstance(HuskSyncBridge.class);
+            bridge.register();
+            plugins.registerEvents(bridge, this);
+        }
     }
 
     private void registerCommands(Commands registrar) {
@@ -124,6 +143,9 @@ public final class ProvenancePlugin extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        if (injector != null && usesHuskSync()) {
+            injector.getInstance(HuskSyncBridge.class).persistAll();
+        }
         stop();
     }
 }

@@ -37,6 +37,7 @@ public final class Labels {
             case BLOCK -> holder.id().id().replace(':', ' ');
             case ENTITY -> "entity " + holder.id().id().substring(0, 8);
             case SHULKER -> "shulker " + holder.id().id().substring(0, 8);
+            case SERVER -> "server " + holder.id().id();
         };
     }
 
@@ -48,6 +49,7 @@ public final class Labels {
         return switch (holder.id().kind()) {
             case PLAYER -> of(holder.asPlayerOrigin());
             case BLOCK, ENTITY, SHULKER -> holder.displayName();
+            case SERVER -> of(holder);
         };
     }
 

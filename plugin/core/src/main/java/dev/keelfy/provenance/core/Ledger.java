@@ -2,6 +2,7 @@ package dev.keelfy.provenance.core;
 
 import dev.keelfy.provenance.core.event.Envelope;
 import dev.keelfy.provenance.core.event.LedgerEvent;
+import dev.keelfy.provenance.core.event.PoolState;
 import dev.keelfy.provenance.core.model.Cause;
 import dev.keelfy.provenance.core.model.Holder;
 import dev.keelfy.provenance.core.model.ItemKey;
@@ -89,6 +90,30 @@ public final class Ledger implements LedgerView {
     public void clear(Cause cause, Holder holder) {
         if (state.getHolders().contains(holder)) {
             emit(cause, new LedgerEvent.Cleared(holder));
+        }
+    }
+
+    /**
+     * The pools of {@code holder} as values, ordered by item key: what another server's ledger takes over in
+     * {@link #sync}.
+     */
+    public Map<ItemKey, PoolState> snapshot(Holder holder) {
+        val result = new TreeMap<ItemKey, PoolState>(BY_KEY);
+        getPools(holder)
+                .forEach((item, pool) ->
+                        result.put(item, new PoolState(pool.getCount(), pool.getOrigin(), pool.getCustody())));
+        return Collections.unmodifiableMap(result);
+    }
+
+    /**
+     * Replaces everything {@code player} holds with {@code pools} that were tracked on server {@code from}, so items
+     * that crossed servers keep their origin instead of reappearing as {@link OriginId#UNKNOWN}.
+     */
+    public void sync(Holder player, Holder from, Map<ItemKey, PoolState> pools) {
+        if (!pools.isEmpty() || state.getHolders().contains(player)) {
+            val ordered = new TreeMap<ItemKey, PoolState>(BY_KEY);
+            ordered.putAll(pools);
+            emit(Cause.SYNC, new LedgerEvent.Synced(player, from, Collections.unmodifiableMap(ordered)));
         }
     }
 

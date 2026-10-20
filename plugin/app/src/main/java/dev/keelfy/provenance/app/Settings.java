@@ -13,6 +13,7 @@ import lombok.val;
  * @author keelfy
  */
 public record Settings(
+        String serverId,
         boolean mergeAutomation,
         Database database,
         Retention retention,
@@ -39,6 +40,7 @@ public record Settings(
         int webMaxEvents) {
 
     private static final int TICKS_PER_SECOND = 20;
+    private static final String DEFAULT_SERVER = "default";
     private static final String DATABASE_FILE = "provenance.db";
 
     /** @throws IllegalArgumentException if a value is not positive */
@@ -46,6 +48,7 @@ public record Settings(
         val seconds = TICKS_PER_SECOND;
         val hours = 3600L * TICKS_PER_SECOND;
         return new Settings(
+                config.getString("server.id", "").trim(),
                 config.getBoolean("journal.merge-automation"),
                 database(config),
                 new Retention(
@@ -88,6 +91,16 @@ public record Settings(
                 config.getString("storage.database", "provenance").trim(),
                 config.getString("storage.username", "").trim(),
                 config.getString("storage.password", ""));
+    }
+
+    /** Names this server's rows in a database that several servers share. */
+    public String storageKey() {
+        return serverId.isEmpty() ? DEFAULT_SERVER : serverId;
+    }
+
+    /** Without an id this server cannot say where its inventories came from, so it does not sync them. */
+    public boolean syncEnabled() {
+        return !serverId.isEmpty();
     }
 
     /** An empty endpoint or secret switches the web viewer off. */

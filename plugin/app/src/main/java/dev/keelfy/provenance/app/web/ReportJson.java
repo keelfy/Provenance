@@ -43,16 +43,17 @@ public class ReportJson {
             Function<OriginId, String> originLabel) {
         // Events come oldest first, so the table ends up with what each holder was last; an event that saw it
         // differently says so itself.
+        val shown = trace.events().stream().filter(ReportJson::isShown).toList();
         val holders = new LinkedHashMap<String, Holder>();
         holders.put(id(query.root()), query.root());
-        for (val envelope : trace.events()) {
+        for (val envelope : shown) {
             register(envelope.event().holder(), holders);
             if (envelope.event() instanceof LedgerEvent.Transferred transfer) {
                 register(transfer.to(), holders);
             }
         }
         val events = new JsonArray();
-        for (val envelope : trace.events()) {
+        for (val envelope : shown) {
             events.add(event(envelope, holders, holderLabel, originLabel));
         }
 
@@ -138,8 +139,14 @@ public class ReportJson {
                 json.add("outputs", items(e.outputs()));
             }
             case LedgerEvent.Cleared e -> json.addProperty("type", "CLEARED");
+            case LedgerEvent.Synced e -> throw new IllegalArgumentException("not part of the report: " + e);
         }
         return json;
+    }
+
+    /** The viewer does not know inventories carried over from another server yet. */
+    private boolean isShown(Envelope envelope) {
+        return !(envelope.event() instanceof LedgerEvent.Synced);
     }
 
     /** The newest sighting wins, but one without info does not wipe out one with. */

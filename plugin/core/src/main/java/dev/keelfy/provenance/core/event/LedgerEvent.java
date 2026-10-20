@@ -33,4 +33,11 @@ public sealed interface LedgerEvent {
     record Converted(Holder holder, Map<ItemKey, Long> inputs, Map<ItemKey, Long> outputs) implements LedgerEvent {}
 
     record Cleared(Holder holder) implements LedgerEvent {}
+
+    /**
+     * A player's inventory arrived from another server together with the pools it was tracked as there: everything the
+     * player held here is replaced by {@code pools}. {@code from} is that server. Ordered by item key like
+     * {@link Converted}.
+     */
+    record Synced(Holder holder, Holder from, Map<ItemKey, PoolState> pools) implements LedgerEvent {}
 }

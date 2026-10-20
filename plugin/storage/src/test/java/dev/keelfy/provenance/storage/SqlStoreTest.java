@@ -445,7 +445,77 @@ class SqlStoreTest {
         }
     }
 
+    @Test
+    void serversSharingADatabaseLoadOnlyTheirOwn() throws Exception {
+        val farm = new Ledger();
+        farm.mint(CAUSE, chest, DIAMOND, 7, alice);
+        val survival = new Ledger();
+        survival.mint(CAUSE, chest, DIAMOND, 2, OriginId.MOB);
+
+        try (val farmStore = store("farm", "shared.db");
+                val survivalStore = store("survival", "shared.db")) {
+            farmStore.write(farm.drainChanges());
+            survivalStore.write(survival.drainChanges());
+
+            val farmRestored = new Ledger();
+            farmStore.load(farmRestored);
+            val survivalRestored = new Ledger();
+            survivalStore.load(survivalRestored);
+
+            assertThat(farmRestored.getCount(chest, DIAMOND)).isEqualTo(7);
+            assertThat(survivalRestored.getCount(chest, DIAMOND)).isEqualTo(2);
+            assertThat(farmRestored.drainChanges().lastSeq()).isEqualTo(1);
+            assertThat(survivalRestored.drainChanges().lastSeq()).isEqualTo(1);
+        }
+    }
+
+    @Test
+    void playerHistoryReadsAcrossServersButBlockHistoryDoesNot() throws Exception {
+        val farm = new Ledger(() -> 1_000);
+        farm.mint(CAUSE, chest, DIAMOND, 7, alice);
+        farm.transfer(CAUSE, chest, bob, DIAMOND, 7);
+        val survival = new Ledger(() -> 2_000);
+        survival.sync(bob, Holder.server("farm"), farm.snapshot(bob));
+
+        try (val farmStore = store("farm", "shared.db");
+                val survivalStore = store("survival", "shared.db")) {
+            farmStore.write(farm.drainChanges());
+            survivalStore.write(survival.drainChanges());
+
+            val seen = survivalStore.history(bob, null, 10);
+            assertThat(seen).extracting(Envelope::server).containsExactly(null, "farm");
+            assertThat(seen.get(0).event()).isInstanceOf(LedgerEvent.Synced.class);
+            assertThat(survivalStore.history(chest, null, 10)).isEmpty();
+            assertThat(farmStore.history(chest, null, 10))
+                    .extracting(Envelope::server)
+                    .containsOnlyNulls();
+        }
+    }
+
+    @Test
+    void syncedInventoryKeepsItsOriginAcrossReload() throws Exception {
+        val source = new Ledger();
+        source.mint(CAUSE, bob, DIAMOND, 4, alice);
+        val ledger = new Ledger();
+        ledger.sync(bob, Holder.server("farm"), source.snapshot(bob));
+
+        try (val store = store("survival", "sync.db")) {
+            store.write(ledger.drainChanges());
+            // the snapshot lags behind: the journal tail alone must rebuild the synced pools
+            val replayed = new Ledger();
+            store.load(replayed);
+
+            assertThat(replayed.getCount(bob, DIAMOND)).isEqualTo(4);
+            assertThat(replayed.pool(bob, DIAMOND).getOrigin().share(alice)).isCloseTo(1.0, offset(1e-5));
+            assertThat(store.history(bob, DIAMOND, 10)).hasSize(1);
+        }
+    }
+
     private SqlStore store(String file) throws SQLException {
-        return new SqlStore(Database.sqlite(file), dir, RETENTION, BUCKET);
+        return store("main", file);
+    }
+
+    private SqlStore store(String server, String file) throws SQLException {
+        return new SqlStore(server, Database.sqlite(file), dir, RETENTION, BUCKET);
     }
 }

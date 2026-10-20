@@ -1,3 +1,9 @@
+# Names this server. With HuskSync, items a player carries over from another server keep their origin and the history
+# says which server they came from; leave empty to switch that off. It must be different on every server, also when they
+# share one database (storage below): rows of two servers with the same id would be mixed up.
+server:
+  id: ""
+
 journal:
   # Journal back-to-back hopper moves of one item between the same two blocks as a single event.
   # Cuts the size of the history; the only cost is that /prov history shows one line instead of many.

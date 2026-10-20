@@ -89,7 +89,7 @@ Creative-игрок минтит `CREATIVE` вместо `UNKNOWN`.
   `config.yml`). HikariCP и драйверы MariaDB/PostgreSQL подтягивает `ProvenanceLoader`. Доступ последовательный (поток
   записи), пул нужен ради замены оборванных соединений: 1 соединение для SQLite, 2 для остальных. Версия схемы — в
   `schema_version`; при несовпадении таблицы пересоздаются. Таблицы:
-  `pool(holder_kind, holder_id, item, count, origin, custody)`, `flow(from_origin, to_origin, item, amount)`;
+  `pool(holder_kind, holder_id, item, count, origin, custody, server)`, `flow(from_origin, to_origin, item, amount, server)`;
   вектор — текст `origin=share;…`. Дней в `flow` нет: суммы накопительные.
 - `Ledger` помечает тронутые holder'ы и рёбра `FlowGraph`; `drainChanges()` отдаёт неизменяемый снимок
   (`LedgerChanges`), пустой список у holder'а = удалить. Снимок на main раз в 30 с → `WriteBehind`
@@ -99,19 +99,19 @@ Creative-игрок минтит `CREATIVE` вместо `UNKNOWN`.
 
 ### История (event sourcing, для модерации: дюпы и кражи)
 
-- Источник правды — журнал событий `LedgerEvent` (`Minted`, `Transferred`, `Burned`, `Converted`, `Cleared`);
+- Источник правды — журнал событий `LedgerEvent` (`Minted`, `Transferred`, `Burned`, `Converted`, `Cleared`, `Synced`);
   `Pool`/`FlowGraph` — проекции (`PoolProjection`, `FlowProjection`). Состояние меняет только `LedgerState.apply(event)`:
   и вживую, и при replay.
   Составные операции разворачиваются в простые: недостача при `transfer` = `Transferred(moved)` + `Minted(UNKNOWN)`,
   `reconcile` = `Minted`/`Burned`, `transferAll` = N `Transferred`; `Converted` хранит входы/выходы по порядку ключей.
-- Команды `Ledger` принимают `Cause` (mine, kill, loot, pickup, drop, container, craft, hopper, smelt, trade, consume, place, break, shoot, fuel, despawn, destroy, reconcile)
+- Команды `Ledger` принимают `Cause` (mine, kill, loot, pickup, drop, container, craft, hopper, smelt, trade, consume, place, break, shoot, fuel, despawn, destroy, reconcile, sync)
   и кладут `Envelope(seq, time, cause, event)` в буфер; `drainChanges()` отдаёт его вместе со снимком (`events`, `lastSeq`).
 - `Transferred.custody` заполняется, когда получатель — игрок: чьи это были предметы (кража). При replay пересчитывается.
-- Таблица `event` (индексы `(holder, seq)`, `(other, seq)`), `meta.last_seq`. Снимок, события и `last_seq` пишутся
+- Таблица `event` (индексы `(holder, time)`, `(other, time)`), `meta.last_seq`. Снимок, события и `last_seq` пишутся
   одной транзакцией. Загрузка = снимок + replay событий с `seq > last_seq`; `seq` уникален, повтор батча безопасен.
 - Хранение (по умолчанию): события с игроком и любые `Minted` — 30 дней, чистая автоматика (блок ↔ блок) — 3 дня;
   чистка раз в сутки на потоке записи. Сроки и периоды задаются в `config.yml` (`Settings`), там же радиусы
-  атрибуции и размеры выдачи команд. Пересборка с нуля не поддерживается. Схема v2 без миграции: старая БД сбрасывается.
+  атрибуции и размеры выдачи команд. Пересборка с нуля не поддерживается. Схема v7 без миграции: старая БД сбрасывается.
 - Подряд идущие `Transferred` блок ↔ блок с одной причиной, парой холдеров и предметом (тикающая воронка) `Journal`
   склеивает в одно событие, пока оно не ушло в запись: `seq` остаётся сплошным, `time` берётся от первого.
   Включено по умолчанию, отключается `journal.merge-automation: false` в `config.yml`.
@@ -123,6 +123,35 @@ Creative-игрок минтит `CREATIVE` вместо `UNKNOWN`.
   игрок» становится «добыто → игрок». Трогаются только события с `seq <= last_seq` (уже в снимке), поэтому replay и
   состояние не меняются. Стек, подобранный в следующем бакете, остаётся сырым и сворачивается в вебе.
 - Запрос истории идёт на потоке записи после `flush()`, поэтому видит всё записанное до него.
+
+### Несколько серверов (HuskSync, общая БД)
+
+- Игрок между серверами сети (Velocity + HuskSync) переносит инвентарь, поэтому вместе с ним должно ехать и
+  происхождение: иначе на втором сервере предметы из сундуков первого станут `UNKNOWN`. Ключ сервера для этого не нужен —
+  нужен payload.
+- `Kind.SERVER` и событие `LedgerEvent.Synced(игрок, from = SERVER/<id>, pools)` (причина `sync`): `apply` целиком
+  заменяет пулы игрока пулами из payload; в таблице `event` — тип `SYNCED`, `other` = сервер, пулы в `detail`
+  (`|item=count~origin~custody|`), поэтому replay восстанавливает их из журнала. История показывает его нейтральной
+  строкой «arrived from server X with N items», а не красным `Minted unknown`. Веб-отчёт такие события пока не показывает.
+- Payload (`PoolsData`) кладёт в снимок HuskSync `HuskSyncBridge` (`paper/husksync`): сериализатор
+  `provenance:pools` зависит от `inventory` и `ender_chest`, применяется после них. На `BukkitDataSaveEvent` мост
+  сверяет игрока (`reconcileFinal`, мимо блокировки) и дописывает пулы (`editData`); `DataSaveEvent` не приходит при
+  остановке сервера, поэтому в `onDisable` мост кладёт payload в хранилище custom-данных HuskSync сам (`persistAll`).
+  `apply` вызывает `Ledger.sync`, если payload пришёл с другого сервера.
+- Пока HuskSync держит игрока (`HuskSync.isLocked`), инвентарь не его реальный: порт `PlayerSync` не даёт
+  `InventoryReconciler` сверять его (иначе пустой инвентарь на входе = burn всего, а приехавший = mint `UNKNOWN`).
+  После `BukkitSyncCompleteEvent` игрок сверяется тиком позже, когда блокировка снята. Без payload (первый вход, сервер
+  без Provenance) остаётся обычный `UNKNOWN`. Откат инвентаря админом тоже применяет снимок и откатывает происхождение.
+- Интеграции с другими плагинами включаются в отдельном `integrations.yml` (`Integrations`; `husksync.enabled`, по
+  умолчанию `true`). Интеграция работает, только если плагин установлен и она включена; выключенная HuskSync
+  оставляет прежнее поведение (`PlayerSync.NONE`, без моста). Новая интеграция — новый ключ там и свой пакет в `paper`.
+- `server.id` в `config.yml` (по умолчанию пусто): пусто — payload не пишется и не читается; HuskSync при этом всё
+  равно ждётся. Должен быть уникальным на каждом сервере.
+- Общая БД необязательна, но поддерживается: все таблицы несут колонку `server` (ключ — `server.id` или `default`),
+  `event` — PK `(server, seq)`. Сервер загружает, сжимает и чистит только свои строки, `last_seq` у каждого свой.
+  История **игрока** читается по всем серверам (порядок по времени, строка помечена `[сервер]`, `Envelope.server`), история
+  блока и `trace` — только по своему: блок стоит на своём сервере. `links`, `player`, `W`/`F` считаются по ledger'у
+  своего сервера. При раздельных БД тот же код видит только свои строки.
 
 ## 5. Команды (Brigadier, `LifecycleEvents.COMMANDS`)
 
@@ -158,11 +187,12 @@ app/       Логика плагина без платформы (anti-corruptio
            observe/{World, Automation, Item, Showcase}Events — факты игры → команды Ledger,
            command/{ProvService, Labels, HistoryView, Line, Span, Tone, Sender} — команды /prov и их вывод,
            web/{ReportJson, ReportPublisher},
-           port/{Scheduler, Log, ConfigSource, PlayerDirectory, OnlinePlayer} — всё, что нужно от платформы
-paper/     Адаптер Bukkit/Paper: PaperScheduler, PaperLog, PaperConfig, PaperDirectory, PaperPlayer, PaperSender,
+           port/{Scheduler, Log, ConfigSource, PlayerDirectory, OnlinePlayer, PlayerSync} — всё, что нужно от платформы
+paper/     Адаптер Bukkit/Paper: PaperScheduler, PaperLog, PaperConfig (config.yml и integrations.yml), PaperDirectory, PaperPlayer, PaperSender,
            Holders, ItemKeys, Views, Positions (Bukkit → значения app/core),
            listener/{Inventory, ItemEntity, World, Automation, Showcase}Listener — событие Bukkit → вызов *Events,
-           command/ProvCommand — дерево Brigadier и права, остальное в ProvService
+           command/ProvCommand — дерево Brigadier и права, остальное в ProvService,
+           husksync/{HuskSyncBridge, HuskSyncLock, PoolsData, PoolsSerializer} — только если HuskSync установлен
 ```
 
 ## 7. Этапы
@@ -198,3 +228,6 @@ paper/     Адаптер Bukkit/Paper: PaperScheduler, PaperLog, PaperConfig, P
 - Частичный подбор воронкой (воронка почти полная) — недостача на земле позже станет `UNKNOWN`.
 - `hopper.disable-move-event` в конфиге Paper отключает `InventoryMoveItemEvent` → воронки станут `UNKNOWN`.
 - Folia, веб-дашборд.
+- Сеть серверов: корреляции и `W`/`F` по всей сети, передача пулов контейнеров между серверами, синхронизация не через
+  HuskSync, проверка одинаковых `server.id`, события `Synced` в веб-отчёте. Триггер: админам нужна «сеть» как одна
+  картина. Игрок, у которого HuskSync не синхронизирует данные (отключён), остаётся без блокировки и payload'а.

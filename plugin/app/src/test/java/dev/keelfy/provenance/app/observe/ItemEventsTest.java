@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import dev.keelfy.provenance.app.Fakes;
 import dev.keelfy.provenance.app.inventory.InventoryReconciler;
 import dev.keelfy.provenance.app.inventory.ViewTarget;
+import dev.keelfy.provenance.app.port.PlayerSync;
 import dev.keelfy.provenance.core.Ledger;
 import dev.keelfy.provenance.core.event.LedgerEvent;
 import dev.keelfy.provenance.core.model.Cause;
@@ -25,7 +26,7 @@ class ItemEventsTest {
     private final Ledger ledger = new Ledger(() -> 0);
     private final Fakes.Player alice = new Fakes.Player();
     private final InventoryReconciler reconciler =
-            new InventoryReconciler(scheduler, Fakes.directory(alice), ledger, Fakes.settings());
+            new InventoryReconciler(scheduler, Fakes.directory(alice), ledger, Fakes.settings(), PlayerSync.NONE);
     private final ItemEvents items = new ItemEvents(ledger, reconciler, scheduler);
     private final Holder entity = Holder.entity(UUID.randomUUID());
 

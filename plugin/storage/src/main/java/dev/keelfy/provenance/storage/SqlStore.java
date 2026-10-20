@@ -24,6 +24,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.stream.Stream;
 import lombok.val;
 import org.jspecify.annotations.Nullable;
 
@@ -34,12 +35,16 @@ import org.jspecify.annotations.Nullable;
  * from a small HikariCP pool, so a connection the server dropped is replaced instead of failing every later write.
  * Callers still do not overlap: {@link WriteBehind} serializes access after {@link #load}.
  *
+ * <p>Several servers may share one database: every row carries the {@code server} that wrote it, and a store loads,
+ * compacts and prunes only its own rows. A player's history is the exception, it reads across servers: a player moves
+ * between them, a block does not.
+ *
  * @author keelfy
  */
 public final class SqlStore implements ChangeSink {
 
     /** No migration: a database of another version is dropped (pre-release). */
-    private static final int SCHEMA_VERSION = 6;
+    private static final int SCHEMA_VERSION = 7;
 
     private static final String LAST_SEQ = "last_seq";
     private static final String COMPACTED = "compacted";
@@ -71,8 +76,11 @@ public final class SqlStore implements ChangeSink {
             "until",
             "chunk");
     private static final String EVENT_COLUMNS = String.join(", ", EVENT_COLUMN_LIST);
+    /** The server comes last, so it does not shift the columns {@link EventRow} reads. */
+    private static final int SERVER_COLUMN = EVENT_COLUMN_LIST.size() + 1;
 
     private final Dialect dialect;
+    private final String server;
     private final Retention retention;
     private final long bucketMillis;
     private final HikariDataSource source;
@@ -81,16 +89,19 @@ public final class SqlStore implements ChangeSink {
     private final String upsertMeta;
 
     /**
+     * @param server tells this server's rows from those of other servers in the same database
      * @param dataDirectory where a SQLite file lives
      * @param bucket the span of time whose similar events {@link #compact} adds up
      */
-    public SqlStore(Database database, Path dataDirectory, Retention retention, Duration bucket) throws SQLException {
+    public SqlStore(String server, Database database, Path dataDirectory, Retention retention, Duration bucket)
+            throws SQLException {
+        this.server = server;
         dialect = database.dialect();
         this.retention = retention;
         this.bucketMillis = bucket.toMillis();
-        insertEvent = dialect.insertIgnore("event", EVENT_COLUMN_LIST, "seq");
-        upsertFlow = dialect.upsert("flow", List.of("from_origin", "to_origin", "item"), List.of("amount"));
-        upsertMeta = dialect.upsert("meta", List.of("name"), List.of("value"));
+        insertEvent = dialect.insertIgnore("event", withServer(EVENT_COLUMN_LIST), "seq");
+        upsertFlow = dialect.upsert("flow", List.of("server", "from_origin", "to_origin", "item"), List.of("amount"));
+        upsertMeta = dialect.upsert("meta", List.of("server", "name"), List.of("value"));
 
         val config = new HikariConfig();
         config.setPoolName("provenance");
@@ -116,6 +127,10 @@ public final class SqlStore implements ChangeSink {
         }
     }
 
+    private static List<String> withServer(List<String> columns) {
+        return Stream.concat(columns.stream(), Stream.of("server")).toList();
+    }
+
     private long schemaVersion(Statement statement) throws SQLException {
         statement.execute("CREATE TABLE IF NOT EXISTS schema_version (version " + dialect.bigint() + " NOT NULL)");
         try (val rows = statement.executeQuery("SELECT version FROM schema_version")) {
@@ -134,20 +149,21 @@ public final class SqlStore implements ChangeSink {
         statement.execute("DELETE FROM schema_version");
         statement.execute("CREATE TABLE pool (holder_kind " + key + " NOT NULL, holder_id " + key + " NOT NULL, item "
                 + key + " NOT NULL, count " + bigint + " NOT NULL, origin " + text + " NOT NULL, custody " + text
-                + " NOT NULL, PRIMARY KEY (holder_kind, holder_id, item))" + dialect.tableOptions(true));
+                + " NOT NULL, server " + key + " NOT NULL, PRIMARY KEY (server, holder_kind, holder_id, item))"
+                + dialect.tableOptions(true));
         statement.execute("CREATE TABLE flow (from_origin " + key + " NOT NULL, to_origin " + key + " NOT NULL, item "
-                + key + " NOT NULL, amount DOUBLE PRECISION NOT NULL, PRIMARY KEY (from_origin, to_origin, item))"
-                + dialect.tableOptions(true));
-        statement.execute("CREATE TABLE meta (name " + key + " PRIMARY KEY, value " + bigint + " NOT NULL)"
-                + dialect.tableOptions(true));
-        statement.execute("CREATE TABLE event (seq " + bigint + " PRIMARY KEY, time " + bigint + " NOT NULL,"
+                + key + " NOT NULL, amount DOUBLE PRECISION NOT NULL, server " + key
+                + " NOT NULL, PRIMARY KEY (server, from_origin, to_origin, item))" + dialect.tableOptions(true));
+        statement.execute("CREATE TABLE meta (name " + key + " NOT NULL, value " + bigint + " NOT NULL, server " + key
+                + " NOT NULL, PRIMARY KEY (server, name))" + dialect.tableOptions(true));
+        statement.execute("CREATE TABLE event (seq " + bigint + " NOT NULL, time " + bigint + " NOT NULL,"
                 + " cause " + key + " NOT NULL, type " + key + " NOT NULL, holder " + key + " NOT NULL, other " + key
                 + ", item " + key + ", amount " + bigint + " NOT NULL, origin " + text + ", custody " + text
                 + ", detail " + text + ", durable " + bigint + " NOT NULL, holder_type " + key + ", holder_label "
                 + text + ", other_type " + key + ", other_label " + text + ", until " + bigint + " NOT NULL, chunk "
-                + key + ")" + dialect.tableOptions(false));
-        statement.execute("CREATE INDEX event_holder ON event (holder, seq)");
-        statement.execute("CREATE INDEX event_other ON event (other, seq)");
+                + key + ", server " + key + " NOT NULL, PRIMARY KEY (server, seq))" + dialect.tableOptions(false));
+        statement.execute("CREATE INDEX event_holder ON event (holder, time)");
+        statement.execute("CREATE INDEX event_other ON event (other, time)");
         statement.execute("INSERT INTO schema_version VALUES (" + SCHEMA_VERSION + ")");
     }
 
@@ -156,10 +172,10 @@ public final class SqlStore implements ChangeSink {
      * so the next flush folds the tail into the snapshot; the journal itself needs no rewrite.
      */
     public void load(Ledger ledger) throws SQLException {
-        try (val connection = source.getConnection();
-                val statement = connection.createStatement()) {
-            try (val rows =
-                    statement.executeQuery("SELECT holder_kind, holder_id, item, count, origin, custody FROM pool")) {
+        try (val connection = source.getConnection()) {
+            try (val rows = query(
+                    connection,
+                    "SELECT holder_kind, holder_id, item, count, origin, custody FROM pool WHERE server = ?")) {
                 while (rows.next()) {
                     val holder = new Holder(Kind.valueOf(rows.getString(1)), rows.getString(2));
                     ledger.restore(
@@ -171,7 +187,8 @@ public final class SqlStore implements ChangeSink {
                                     VectorCodec.decode(rows.getString(6))));
                 }
             }
-            try (val rows = statement.executeQuery("SELECT from_origin, to_origin, item, amount FROM flow")) {
+            try (val rows =
+                    query(connection, "SELECT from_origin, to_origin, item, amount FROM flow WHERE server = ?")) {
                 while (rows.next()) {
                     ledger.restore(new LedgerChanges.FlowRow(
                             new OriginId(rows.getString(1)),
@@ -184,8 +201,10 @@ public final class SqlStore implements ChangeSink {
             val lastSeq = meta(connection, LAST_SEQ);
             ledger.restoreSeq(lastSeq);
 
-            try (val rows = statement.executeQuery(
-                    "SELECT " + EVENT_COLUMNS + " FROM event WHERE seq > " + lastSeq + " ORDER BY seq")) {
+            try (val rows = query(
+                    connection,
+                    "SELECT " + EVENT_COLUMNS + " FROM event WHERE server = ? AND seq > " + lastSeq
+                            + " ORDER BY seq")) {
                 while (rows.next()) {
                     ledger.replay(read(rows).toEnvelope());
                 }
@@ -193,47 +212,59 @@ public final class SqlStore implements ChangeSink {
         }
     }
 
+    /** Runs {@code sql}, whose only {@code ?} is this server's key. */
+    private ResultSet query(Connection connection, String sql) throws SQLException {
+        val statement = connection.prepareStatement(sql);
+        statement.closeOnCompletion();
+        statement.setString(1, server);
+        return statement.executeQuery();
+    }
+
     /** Applies one batch atomically: changed holders are replaced wholesale, flow totals overwritten. */
     @Override
     public void write(LedgerChanges changes) throws SQLException {
         try (val connection = source.getConnection()) {
             connection.setAutoCommit(false);
-            try (val delete = connection.prepareStatement("DELETE FROM pool WHERE holder_kind = ? AND holder_id = ?");
-                    val insert = connection.prepareStatement("INSERT INTO pool VALUES (?, ?, ?, ?, ?, ?)");
+            try (val delete = connection.prepareStatement(
+                            "DELETE FROM pool WHERE server = ? AND holder_kind = ? AND holder_id = ?");
+                    val insert = connection.prepareStatement(
+                            "INSERT INTO pool (server, holder_kind, holder_id, item, count, origin, custody) VALUES (?, ?, ?, ?, ?, ?, ?)");
                     val flow = connection.prepareStatement(upsertFlow);
                     val event = connection.prepareStatement(insertEvent);
                     val meta = connection.prepareStatement(upsertMeta)) {
 
                 for (val entry : changes.holders().entrySet()) {
                     val holder = entry.getKey();
-                    delete.setString(1, holder.id().kind().name());
-                    delete.setString(2, holder.id().id());
+                    delete.setString(1, server);
+                    delete.setString(2, holder.id().kind().name());
+                    delete.setString(3, holder.id().id());
                     delete.addBatch();
 
                     for (val row : entry.getValue()) {
-                        insert.setString(1, holder.id().kind().name());
-                        insert.setString(2, holder.id().id());
-                        insert.setString(3, row.item().key());
-                        insert.setLong(4, row.count());
-                        insert.setString(5, VectorCodec.encode(row.origin()));
-                        insert.setString(6, VectorCodec.encode(row.custody()));
+                        insert.setString(1, server);
+                        insert.setString(2, holder.id().kind().name());
+                        insert.setString(3, holder.id().id());
+                        insert.setString(4, row.item().key());
+                        insert.setLong(5, row.count());
+                        insert.setString(6, VectorCodec.encode(row.origin()));
+                        insert.setString(7, VectorCodec.encode(row.custody()));
                         insert.addBatch();
                     }
                 }
                 for (val row : changes.flows()) {
-                    flow.setString(1, row.from().key());
-                    flow.setString(2, row.to().key());
-                    flow.setString(3, row.item().key());
-                    flow.setDouble(4, row.amount());
+                    flow.setString(1, server);
+                    flow.setString(2, row.from().key());
+                    flow.setString(3, row.to().key());
+                    flow.setString(4, row.item().key());
+                    flow.setDouble(5, row.amount());
                     flow.addBatch();
                 }
 
                 for (val envelope : changes.events()) {
-                    bind(event, EventRow.of(envelope));
+                    bind(event, EventRow.of(envelope), server);
                     event.addBatch();
                 }
-                meta.setString(1, LAST_SEQ);
-                meta.setLong(2, changes.lastSeq());
+                bindMeta(meta, LAST_SEQ, changes.lastSeq());
 
                 delete.executeBatch();
                 insert.executeBatch();
@@ -248,7 +279,13 @@ public final class SqlStore implements ChangeSink {
         }
     }
 
-    private static void bind(PreparedStatement event, EventRow row) throws SQLException {
+    private void bindMeta(PreparedStatement meta, String name, long value) throws SQLException {
+        meta.setString(1, server);
+        meta.setString(2, name);
+        meta.setLong(3, value);
+    }
+
+    private static void bind(PreparedStatement event, EventRow row, String server) throws SQLException {
         event.setLong(1, row.seq());
         event.setLong(2, row.time());
         event.setString(3, row.cause());
@@ -267,14 +304,17 @@ public final class SqlStore implements ChangeSink {
         event.setString(16, row.otherInfo() == null ? null : row.otherInfo().label());
         event.setLong(17, row.until());
         event.setString(18, row.chunk());
+        event.setString(SERVER_COLUMN, server);
     }
 
     @Override
     public List<Envelope> history(Holder holder, @Nullable ItemKey item, int limit) throws SQLException {
         val events = new ArrayList<Envelope>();
         try (val connection = source.getConnection()) {
-            for (val row : touching(connection, EventRow.encode(holder), item, Long.MIN_VALUE, limit)) {
-                events.add(row.toEnvelope());
+            // A player moves between servers and takes their history along; a block stands where it stands.
+            for (val stored :
+                    touching(connection, EventRow.encode(holder), item, Long.MIN_VALUE, limit, holder.isPlayer())) {
+                events.add(stored.toEnvelope(server));
             }
         }
         return events;
@@ -293,7 +333,8 @@ public final class SqlStore implements ChangeSink {
                 // A dropped item is only a stop between two holders: it is walked in the same hop, not counted as one.
                 val queue = new ArrayDeque<>(frontier);
                 while (!queue.isEmpty()) {
-                    for (val row : touching(connection, queue.poll(), item, since, limit + 1)) {
+                    for (val stored : touching(connection, queue.poll(), item, since, limit + 1, false)) {
+                        val row = stored.row();
                         found.put(row.seq(), row);
                         visit(row.holder(), row.holderInfo(), visited, queue, next);
                         visit(row.other(), row.otherInfo(), visited, queue, next);
@@ -325,21 +366,35 @@ public final class SqlStore implements ChangeSink {
         }
     }
 
+    /** An event row and the server that journaled it. */
+    private record Stored(EventRow row, String owner) {
+
+        Envelope toEnvelope(String self) {
+            return row.toEnvelope(owner.equals(self) ? null : owner);
+        }
+    }
+
     /**
-     * Newest-first rows where {@code holder} is either side, from {@code since} on, optionally touching {@code item}.
+     * Newest-first rows where {@code holder} is either side, from {@code since} on, optionally touching {@code item};
+     * of this server only unless {@code everywhere}.
      */
-    private List<EventRow> touching(Connection connection, String holder, @Nullable ItemKey item, long since, int limit)
+    private List<Stored> touching(
+            Connection connection, String holder, @Nullable ItemKey item, long since, int limit, boolean everywhere)
             throws SQLException {
-        val sql = "SELECT " + EVENT_COLUMNS + " FROM event WHERE (holder = ? OR other = ?) AND time >= ?"
+        val sql = "SELECT " + EVENT_COLUMNS + ", server FROM event WHERE (holder = ? OR other = ?) AND time >= ?"
+                + (everywhere ? "" : " AND server = ?")
                 + (item == null ? "" : " AND (item = ? OR " + dialect.contains("detail") + ")")
-                + " ORDER BY seq DESC LIMIT ?";
-        val rows = new ArrayList<EventRow>();
+                + " ORDER BY time DESC, seq DESC LIMIT ?";
+        val rows = new ArrayList<Stored>();
 
         try (val query = connection.prepareStatement(sql)) {
             var index = 1;
             query.setString(index++, holder);
             query.setString(index++, holder);
             query.setLong(index++, since);
+            if (!everywhere) {
+                query.setString(index++, server);
+            }
             if (item != null) {
                 query.setString(index++, item.key());
                 query.setString(index++, "|" + item.key() + "=");
@@ -347,7 +402,7 @@ public final class SqlStore implements ChangeSink {
             query.setInt(index, limit);
             try (val result = query.executeQuery()) {
                 while (result.next()) {
-                    rows.add(read(result));
+                    rows.add(new Stored(read(result), result.getString(SERVER_COLUMN)));
                 }
             }
         }
@@ -358,9 +413,10 @@ public final class SqlStore implements ChangeSink {
     public void prune(long now) throws SQLException {
         try (val connection = source.getConnection();
                 val delete = connection.prepareStatement(
-                        "DELETE FROM event WHERE time < CASE durable WHEN 1 THEN ? ELSE ? END")) {
-            delete.setLong(1, now - retention.durable().toMillis());
-            delete.setLong(2, now - retention.automation().toMillis());
+                        "DELETE FROM event WHERE server = ? AND time < CASE durable WHEN 1 THEN ? ELSE ? END")) {
+            delete.setString(1, server);
+            delete.setLong(2, now - retention.durable().toMillis());
+            delete.setLong(3, now - retention.automation().toMillis());
             delete.executeUpdate();
         }
     }
@@ -376,9 +432,10 @@ public final class SqlStore implements ChangeSink {
             val done = meta(connection, COMPACTED);
             val starts = new ArrayList<Long>();
             try (val query = connection.prepareStatement("SELECT DISTINCT time - time % " + bucketMillis
-                    + " FROM event WHERE time >= ? AND time < ? ORDER BY 1")) {
-                query.setLong(1, done);
-                query.setLong(2, settled);
+                    + " FROM event WHERE server = ? AND time >= ? AND time < ? ORDER BY 1")) {
+                query.setString(1, server);
+                query.setLong(2, done);
+                query.setLong(3, settled);
                 try (val result = query.executeQuery()) {
                     while (result.next()) {
                         starts.add(result.getLong(1));
@@ -390,8 +447,7 @@ public final class SqlStore implements ChangeSink {
             }
             if (settled > done) {
                 try (val statement = connection.prepareStatement(upsertMeta)) {
-                    statement.setString(1, COMPACTED);
-                    statement.setLong(2, settled);
+                    bindMeta(statement, COMPACTED, settled);
                     statement.executeUpdate();
                 }
             }
@@ -401,11 +457,12 @@ public final class SqlStore implements ChangeSink {
     private void compactBucket(Connection connection, long from, long to) throws SQLException {
         val lastSeq = meta(connection, LAST_SEQ);
         val rows = new ArrayList<EventRow>();
-        try (val query = connection.prepareStatement(
-                "SELECT " + EVENT_COLUMNS + " FROM event WHERE time >= ? AND time < ? AND seq <= ? ORDER BY seq")) {
-            query.setLong(1, from);
-            query.setLong(2, to);
-            query.setLong(3, lastSeq);
+        try (val query = connection.prepareStatement("SELECT " + EVENT_COLUMNS
+                + " FROM event WHERE server = ? AND time >= ? AND time < ? AND seq <= ? ORDER BY seq")) {
+            query.setString(1, server);
+            query.setLong(2, from);
+            query.setLong(3, to);
+            query.setLong(4, lastSeq);
             try (val result = query.executeQuery()) {
                 while (result.next()) {
                     rows.add(read(result));
@@ -418,14 +475,16 @@ public final class SqlStore implements ChangeSink {
         }
 
         connection.setAutoCommit(false);
-        try (val delete = connection.prepareStatement("DELETE FROM event WHERE time >= ? AND time < ? AND seq <= ?");
+        try (val delete = connection.prepareStatement(
+                        "DELETE FROM event WHERE server = ? AND time >= ? AND time < ? AND seq <= ?");
                 val insert = connection.prepareStatement(insertEvent)) {
-            delete.setLong(1, from);
-            delete.setLong(2, to);
-            delete.setLong(3, lastSeq);
+            delete.setString(1, server);
+            delete.setLong(2, from);
+            delete.setLong(3, to);
+            delete.setLong(4, lastSeq);
             delete.executeUpdate();
             for (val row : compact) {
-                bind(insert, row);
+                bind(insert, row, server);
                 insert.addBatch();
             }
             insert.executeBatch();
@@ -438,9 +497,10 @@ public final class SqlStore implements ChangeSink {
         }
     }
 
-    private static long meta(Connection connection, String name) throws SQLException {
-        try (val query = connection.prepareStatement("SELECT value FROM meta WHERE name = ?")) {
-            query.setString(1, name);
+    private long meta(Connection connection, String name) throws SQLException {
+        try (val query = connection.prepareStatement("SELECT value FROM meta WHERE server = ? AND name = ?")) {
+            query.setString(1, server);
+            query.setString(2, name);
             try (val result = query.executeQuery()) {
                 return result.next() ? result.getLong(1) : 0;
             }

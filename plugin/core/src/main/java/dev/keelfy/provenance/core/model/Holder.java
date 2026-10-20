@@ -68,6 +68,10 @@ public record Holder(HolderId id, HolderMeta meta) {
         return new Holder(Kind.SHULKER, uuid.toString());
     }
 
+    public static Holder server(String serverId) {
+        return new Holder(Kind.SERVER, serverId);
+    }
+
     public boolean isPlayer() {
         return id.isPlayer();
     }

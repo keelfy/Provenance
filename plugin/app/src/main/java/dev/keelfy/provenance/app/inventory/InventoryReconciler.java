@@ -3,6 +3,7 @@ package dev.keelfy.provenance.app.inventory;
 import dev.keelfy.provenance.app.Settings;
 import dev.keelfy.provenance.app.port.OnlinePlayer;
 import dev.keelfy.provenance.app.port.PlayerDirectory;
+import dev.keelfy.provenance.app.port.PlayerSync;
 import dev.keelfy.provenance.app.port.Scheduler;
 import dev.keelfy.provenance.core.Ledger;
 import dev.keelfy.provenance.core.Settlement;
@@ -27,16 +28,19 @@ public final class InventoryReconciler {
     private final PlayerDirectory players;
     private final Ledger ledger;
     private final Settings settings;
+    private final PlayerSync sync;
     private final Set<UUID> pending = new HashSet<>();
     private final Map<UUID, List<Drop>> drops = new HashMap<>();
 
     private record Drop(Holder entity, Map<ItemKey, Long> items) {}
 
-    public InventoryReconciler(Scheduler scheduler, PlayerDirectory players, Ledger ledger, Settings settings) {
+    public InventoryReconciler(
+            Scheduler scheduler, PlayerDirectory players, Ledger ledger, Settings settings, PlayerSync sync) {
         this.scheduler = scheduler;
         this.players = players;
         this.ledger = ledger;
         this.settings = settings;
+        this.sync = sync;
     }
 
     public void runScheduler() {
@@ -47,12 +51,29 @@ public final class InventoryReconciler {
         players.online().forEach(this::reconcile);
     }
 
-    /** Aligns the ledger with the player's actual items unless an interaction is being settled this tick. */
+    /**
+     * Aligns the ledger with the player's actual items unless an interaction is being settled this tick or the
+     * inventory is being synced.
+     */
     public void reconcile(OnlinePlayer player) {
         reconcile(player, Map.of());
     }
 
     public void reconcile(OnlinePlayer player, Map<ItemKey, Long> inFlight) {
+        if (!sync.isSyncing(player.id())) {
+            align(player, inFlight);
+        }
+    }
+
+    /**
+     * Like {@link #reconcile(OnlinePlayer)} but also while the sync plugin holds the player, for when it says the
+     * inventory is final: it is about to be saved and sent on to another server.
+     */
+    public void reconcileFinal(OnlinePlayer player) {
+        align(player, Map.of());
+    }
+
+    private void align(OnlinePlayer player, Map<ItemKey, Long> inFlight) {
         if (!pending.contains(player.id())) {
             val actual = player.holdings();
             inFlight.forEach((item, amount) -> actual.merge(item, amount, (a, b) -> a + b));
@@ -90,7 +111,7 @@ public final class InventoryReconciler {
     }
 
     public void track(OnlinePlayer player, ViewTarget target, Map<ItemKey, Long> inFlight) {
-        if (isSettling(player)) {
+        if (isSettling(player) || sync.isSyncing(player.id())) {
             return;
         }
 

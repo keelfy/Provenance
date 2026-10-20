@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.keelfy.provenance.app.Fakes;
 import dev.keelfy.provenance.app.inventory.InventoryReconciler;
+import dev.keelfy.provenance.app.port.PlayerSync;
 import dev.keelfy.provenance.app.world.ItemDrop;
 import dev.keelfy.provenance.app.world.SpawnContexts;
 import dev.keelfy.provenance.app.world.WorldPos;
@@ -33,7 +34,7 @@ class WorldEventsTest {
             Fakes.settings(),
             ledger,
             contexts,
-            new InventoryReconciler(scheduler, Fakes.directory(), ledger, Fakes.settings()),
+            new InventoryReconciler(scheduler, Fakes.directory(), ledger, Fakes.settings(), PlayerSync.NONE),
             scheduler);
 
     private final Holder chest = Holder.block("world", 0, 64, 0).described("minecraft:chest");

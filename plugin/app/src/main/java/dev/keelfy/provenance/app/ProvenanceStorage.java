@@ -39,7 +39,8 @@ public class ProvenanceStorage {
     public boolean open() {
         try {
             Files.createDirectories(dataDirectory);
-            val store = new SqlStore(settings.database(), dataDirectory, settings.retention(), settings.bucket());
+            val store = new SqlStore(
+                    settings.storageKey(), settings.database(), dataDirectory, settings.retention(), settings.bucket());
             store.load(ledger);
             writer = new WriteBehind(
                     store, e -> log.severe("Storage write failed, will retry: " + e), settings.shutdownTimeout());
