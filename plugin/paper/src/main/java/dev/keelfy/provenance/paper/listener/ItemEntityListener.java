@@ -45,12 +45,14 @@ public final class ItemEntityListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPickup(EntityPickupItemEvent event) {
         val item = event.getItem();
-        val picked = item.getItemStack().getAmount() - event.getRemaining();
+        // Paper trims the entity's stack to what the picker can hold before firing the event and reports the rest
+        // as getRemaining(), so the stack already is the picked amount (Paper 26.3, ItemEntity#playerTouch).
+        val picked = item.getItemStack().getAmount();
         if (ItemKeys.of(item.getItemStack()) == null || picked <= 0) {
             return;
         }
 
-        val counts = ItemKeys.count(item.getItemStack().asQuantity(picked));
+        val counts = ItemKeys.count(item.getItemStack());
         val picker = event.getEntity();
         if (picker instanceof Player player) {
             items.pickedUp(Holders.of(item), PaperPlayer.of(player), counts);

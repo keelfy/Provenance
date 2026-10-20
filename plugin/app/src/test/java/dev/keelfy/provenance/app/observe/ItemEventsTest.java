@@ -79,6 +79,21 @@ class ItemEventsTest {
     }
 
     @Test
+    void aStackPickedUpInTwoPartsLeavesNothingUnknownBehind() {
+        ledger.mint(Cause.DROP, entity, DIAMOND, 64, OriginId.WORLD);
+
+        items.pickedUp(entity, alice, Map.of(DIAMOND, 52L)); // room for 52 only: the rest stays on the ground
+        alice.items.put(DIAMOND, 52L);
+        scheduler.tick();
+        items.pickedUp(entity, alice, Map.of(DIAMOND, 12L));
+        alice.items.put(DIAMOND, 64L);
+        items.removed(entity, Cause.DROP, false);
+
+        assertThat(ledger.getCount(alice.holder(), DIAMOND)).isEqualTo(64);
+        assertThat(ledger.pool(alice.holder(), DIAMOND).getOrigin().shares()).containsOnlyKeys(OriginId.WORLD);
+    }
+
+    @Test
     void mergingMovesOnlyWhatFitted() {
         val target = Holder.entity(UUID.randomUUID());
         ledger.mint(Cause.DROP, entity, DIAMOND, 5, OriginId.WORLD);
