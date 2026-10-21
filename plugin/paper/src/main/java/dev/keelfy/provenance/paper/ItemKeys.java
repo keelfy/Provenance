@@ -2,9 +2,15 @@ package dev.keelfy.provenance.paper;
 
 import dev.keelfy.provenance.core.model.ItemKey;
 import io.papermc.paper.block.TileStateInventoryHolder;
+import io.papermc.paper.datacomponent.DataComponentType;
 import io.papermc.paper.datacomponent.DataComponentTypes;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.HashMap;
+import java.util.HexFormat;
 import java.util.Map;
+import java.util.Set;
 import lombok.experimental.UtilityClass;
 import lombok.val;
 import org.bukkit.block.BlockState;
@@ -17,8 +23,11 @@ import org.bukkit.inventory.ItemStack;
 import org.jspecify.annotations.Nullable;
 
 /**
- * Maps Bukkit stacks to ledger item keys. MVP fungibility class is the item type; components are ignored, except that
- * what a stack carries inside (shulker boxes, bundles) counts as items of its holder.
+ * Maps Bukkit stacks to ledger item keys. The fungibility class is the item type plus a hash of its data components
+ * ({@code minecraft:diamond_sword#3f9a…}), so an enchanted or renamed stack is its own pool; a stack without components
+ * keeps the bare type. Components that change in place without an inventory event (wear, contents, a loaded crossbow, a
+ * book being written) are left out: otherwise using an item would burn it and mint it back as {@code UNKNOWN}. What a
+ * stack carries inside (shulker boxes, bundles) counts as items of its holder.
  *
  * @author keelfy
  */
@@ -34,11 +43,48 @@ public class ItemKeys {
         EquipmentSlot.FEET
     };
 
+    private static final Set<DataComponentType> MUTABLE = Set.of(
+            DataComponentTypes.DAMAGE,
+            DataComponentTypes.CONTAINER,
+            DataComponentTypes.BUNDLE_CONTENTS,
+            DataComponentTypes.CHARGED_PROJECTILES,
+            DataComponentTypes.WRITABLE_BOOK_CONTENT,
+            DataComponentTypes.LODESTONE_TRACKER);
+
+    /** Hex digits of the component hash kept in the key: 64 bits, collisions are not a concern. */
+    private static final int VARIANT_LENGTH = 16;
+
     public @Nullable ItemKey of(@Nullable ItemStack stack) {
         if (stack == null || stack.isEmpty()) {
             return null;
         }
-        return new ItemKey(stack.getType().getKey().toString());
+
+        val type = stack.getType().getKey().toString();
+        val variant = variant(stack);
+        return new ItemKey(variant == null ? type : type + "#" + variant);
+    }
+
+    /** Hash of the components that set the stack apart from a plain one of its type; {@code null} if none do. */
+    private @Nullable String variant(ItemStack stack) {
+        if (!stack.hasItemMeta()) {
+            return null;
+        }
+
+        val copy = stack.asOne();
+        MUTABLE.forEach(copy::resetData);
+        if (copy.isSimilar(ItemStack.of(copy.getType()))) {
+            return null;
+        }
+        return hash(copy.getItemMeta().getAsComponentString());
+    }
+
+    private String hash(String components) {
+        try {
+            val digest = MessageDigest.getInstance("SHA-256").digest(components.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest).substring(0, VARIANT_LENGTH);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 is required by the JDK", e);
+        }
     }
 
     public void add(Map<ItemKey, Long> counts, @Nullable ItemStack stack) {

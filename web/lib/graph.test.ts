@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { buildGraph, BURN, NO_FILTERS } from "./graph"
+import { buildGraph, BURN, FOLD_ALL, NO_FILTERS } from "./graph"
 import type { Report, ReportEvent } from "./report"
 
 const e = (seq: number, rest: Record<string, unknown>) =>
@@ -206,15 +206,38 @@ test("counterparties list what came from and went to the root, before the traffi
 })
 
 test("with grouping off, a base of chests is a node each and a pair that nets out stays two-way", () => {
-  const off = { drops: true, groups: false, netting: true }
+  const off = { drops: true, groups: false, netting: true, visits: true }
   expect(buildGraph(chests(8), NO_FILTERS, new Set(), off).nodes).toHaveLength(10)
   expect(buildGraph(packing(8), NO_FILTERS, new Set(), off).nodes).toHaveLength(9)
 })
 
 test("with netting off, both directions of a pair keep their own traffic", () => {
-  const g = buildGraph(packing(1), NO_FILTERS, new Set(), { drops: true, groups: true, netting: false })
+  const g = buildGraph(packing(1), NO_FILTERS, new Set(), { drops: true, groups: true, netting: false, visits: true })
   expect(g.edges.map((x) => [x.id, x.amount, x.settled]).sort()).toEqual([
     [`PLAYER/bob>${SHULKER(0)}`, 1728, undefined],
     [`${SHULKER(0)}>PLAYER/bob`, 1728, undefined],
   ])
+})
+
+test("without merged visits, items coming back start a new node: bob -> chest -> bob -> furnace -> chest", () => {
+  const chain: Report = {
+    ...report,
+    holders: { ...report.holders, "BLOCK/furnace": { label: "furnace", kind: "BLOCK" } },
+    events: [
+      e(1, { type: "TRANSFERRED", holder: "PLAYER/bob", other: "BLOCK/chest", item: "minecraft:iron_ore", amount: 8 }),
+      e(2, { type: "TRANSFERRED", holder: "BLOCK/chest", other: "PLAYER/bob", item: "minecraft:iron_ore", amount: 8 }),
+      e(3, { type: "TRANSFERRED", holder: "PLAYER/bob", other: "BLOCK/furnace", item: "minecraft:iron_ore", amount: 8 }),
+      e(4, { type: "TRANSFERRED", holder: "BLOCK/furnace", other: "BLOCK/chest", item: "minecraft:iron_ingot", amount: 8 }),
+    ],
+  }
+  const g = buildGraph(chain, NO_FILTERS, undefined, { ...FOLD_ALL, visits: false })
+  expect(g.edges.map((x) => x.id).sort()).toEqual(
+    ["BLOCK/chest>PLAYER/bob#2", "BLOCK/furnace>BLOCK/chest#2", "PLAYER/bob#2>BLOCK/furnace", "PLAYER/bob>BLOCK/chest"].sort(),
+  )
+  const later = g.nodes.find((n) => n.id === "PLAYER/bob#2")!
+  expect(later).toMatchObject({ of: "PLAYER/bob", root: true, label: "Bob" })
+  // the table still lists each counterparty once
+  expect(g.counterparties.map((c) => c.id).sort()).toEqual(["BLOCK/chest", "BLOCK/furnace"])
+
+  expect(buildGraph(chain, NO_FILTERS).nodes.map((n) => n.id).sort()).toEqual(["BLOCK/chest", "BLOCK/furnace", "PLAYER/bob"])
 })

@@ -5,8 +5,13 @@ const words = (id: string) =>
     .map((w) => w[0].toUpperCase() + w.slice(1))
     .join(" ")
 
-/** `minecraft:netherite_ingot` -> `Netherite Ingot`; other namespaces stay visible: `Ruby Gem (mymod)`. */
+/**
+ * `minecraft:netherite_ingot` -> `Netherite Ingot`; other namespaces stay visible: `Ruby Gem (mymod)`.
+ * A stack with its own components carries a hash: `minecraft:diamond_sword#3f9a…` -> `Diamond Sword #3f9a`.
+ */
 export function itemName(key: string): string {
+  const hash = key.indexOf("#")
+  if (hash >= 0) return `${itemName(key.slice(0, hash))} #${key.slice(hash + 1, hash + 5)}`
   const at = key.indexOf(":")
   if (at < 0) return words(key)
   const namespace = key.slice(0, at)

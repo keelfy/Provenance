@@ -87,7 +87,8 @@ function Failure({ reason }: { reason: keyof typeof MESSAGES }) {
 }
 
 function Workspace({ report: original }: { report: Report }) {
-  const [folding, setFolding] = useState<Folding>(FOLD_ALL)
+  // A chain of visits reads in order of time, where one node per holder is a tangle of back-and-forth
+  const [folding, setFolding] = useState<Folding>({ ...FOLD_ALL, visits: false })
   // Dropped items are plumbing, not part of the story (see `foldDrops`), unless the reader wants them
   const report = useMemo(() => (folding.drops ? foldDrops(original) : original), [original, folding.drops])
   const [view, setView] = useState<View>("board")

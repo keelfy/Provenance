@@ -53,6 +53,7 @@ const PERIODS = [
 const FOLDS: { key: keyof Folding; label: string; hint: string }[] = [
   { key: "drops", label: "Fold drops", hint: "Show items taken from the ground as moving straight to whoever took them" },
   { key: "groups", label: "Group similar", hint: "Show many mobs, chests or boxes of one type as one plate" },
+  { key: "visits", label: "Merge visits", hint: "Show each holder as one node, not a new node each time items come back to it" },
   { key: "netting", label: "Net two-way", hint: "Show items passed back and forth between two holders as one link with what is left" },
 ]
 

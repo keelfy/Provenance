@@ -29,7 +29,7 @@ export function Details({ report, graph, selection, onSelect, onToggle, onReveal
   let subtitle: string | null = null
   let events: ReportEvent[] = graph.events
   // A plate of creatures or blocks, or one of an expanded group
-  const plate = node?.folded ? graph.groups.get(node.id) : undefined
+  const plate = node?.folded ? graph.groups.get(node.of ?? node.id) : undefined
   const siblings = node?.group ? graph.groups.get(node.group) : undefined
   if (node) {
     events = graph.byNode.get(node.id) ?? []
@@ -37,15 +37,18 @@ export function Details({ report, graph, selection, onSelect, onToggle, onReveal
       title = node.label
       subtitle = `${plate.members.length} entries`
     } else {
-      title = node.kind === "holder" ? label(node.id) : node.label
+      title = node.kind === "holder" ? label(node.of ?? node.id) : node.label
       subtitle = node.items
         ? itemList(node.items)
         : node.kind === "holder"
-          ? [node.type, holderDetail(node.id, true)].filter(Boolean).join(" · ")
+          ? [node.type, holderDetail(node.of ?? node.id, true)].filter(Boolean).join(" · ")
           : null
     }
   } else if (edge) {
-    const name = (id: string) => (id in report.holders ? label(id) : (graph.nodes.find((n) => n.id === id)?.label ?? id))
+    const name = (id: string) => {
+      const of = graph.nodes.find((n) => n.id === id)?.of ?? id
+      return of in report.holders ? label(of) : (graph.nodes.find((n) => n.id === of)?.label ?? of)
+    }
     title = `${name(edge.source)} → ${name(edge.target)}`
     subtitle = itemList(edge.items)
     events = graph.byEdge.get(edge.id) ?? []

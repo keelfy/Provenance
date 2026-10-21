@@ -19,9 +19,11 @@ export type Folding = {
   groups: boolean
   /** Items passed back and forth between two holders are one link with what is left */
   netting: boolean
+  /** A holder is one node for its whole history; off, it gets a new node each time items come back to it (see `visits`) */
+  visits: boolean
 }
 
-export const FOLD_ALL: Folding = { drops: true, groups: true, netting: true }
+export const FOLD_ALL: Folding = { drops: true, groups: true, netting: true, visits: true }
 
 export type NodeKind = "holder" | "origin" | "sink"
 
@@ -43,6 +45,8 @@ export type GraphNode = {
   folded?: number
   /** A creature or block shown on its own from an expanded group: the group's id, to fold it back */
   group?: string
+  /** A later visit of a holder or plate: the id of its first node, which stands for it elsewhere (table, groups) */
+  of?: string
   root: boolean
   suspicious: boolean
   /** Holders that stand for a pile of things lying around (dropped items): what is in it, to list on the node */
@@ -274,12 +278,15 @@ export function buildGraph(
     for (const m of list) (open ? groupOf : folded).set(m.id, id)
   }
   const killers = new Map<string, Set<string>>()
+  const visit = folding.visits ? undefined : visits(events, (real) => folded.get(real) ?? real)
 
-  const holder = (real: string) => {
-    const id = folded.get(real) ?? real
+  /** `as` is the visit's node id, when the history is split into visits */
+  const holder = (real: string, as?: string) => {
+    const base = folded.get(real) ?? real
+    const id = as ?? base
     let node = nodes.get(id)
     if (!node) {
-      const plate = groups.get(id)
+      const plate = groups.get(base)
       const info = report.holders[real]
       node = plate
         ? {
@@ -289,6 +296,7 @@ export function buildGraph(
             holderKind: plate.kind,
             detail: `${plate.members.length} entries`,
             folded: plate.members.length,
+            of: id !== base ? base : undefined,
             root: false,
             suspicious: false,
             notes: 0,
@@ -296,12 +304,13 @@ export function buildGraph(
         : {
             id,
             kind: "holder",
-            label: info?.label ?? id,
-            holderKind: info?.kind ?? id.split("/")[0],
-            detail: holderDetail(id),
+            label: info?.label ?? base,
+            holderKind: info?.kind ?? base.split("/")[0],
+            detail: holderDetail(base),
             type: typeName(info),
-            group: groupOf.get(id),
-            root: id === report.query.root,
+            group: groupOf.get(base),
+            of: id !== base ? base : undefined,
+            root: base === report.query.root,
             suspicious: false,
             notes: 0,
           }
@@ -339,7 +348,8 @@ export function buildGraph(
   }
 
   for (const event of events) {
-    const subject = holder(event.holder)
+    const at = visit?.get(event)
+    const subject = holder(event.holder, at?.holder)
     switch (event.type) {
       case "MINTED": {
         // Loot comes from the creature that died, not from the killer: a killer node on the left would read as
@@ -360,7 +370,7 @@ export function buildGraph(
         break
       }
       case "TRANSFERRED":
-        link(subject.id, holder(event.other).id, event.item, event.amount, event)
+        link(subject.id, holder(event.other, at?.other).id, event.item, event.amount, event)
         break
       case "BURNED":
         other(BURN, "sink", "Burned")
@@ -387,19 +397,54 @@ export function buildGraph(
     for (const [item, n] of node.items) if (n <= 0) node.items.delete(item)
   }
 
-  const counterparties = counterpartiesOf(report.query.root, edges)
+  const counterparties = counterpartiesOf(report.query.root, edges, (id) => nodes.get(id)?.of ?? id)
   if (folding.netting) netPairs(edges, byEdge)
 
   return { nodes: [...nodes.values()], counterparties, groups, folded, edges: [...edges.values()], byNode, byEdge, events }
 }
 
+/**
+ * The history as a chain: "player -> chest -> player -> furnace -> chest" instead of every holder a hub. A holder's
+ * node stands for one visit: items come in, then go out. Items coming in after some went out start the next visit, a
+ * node of its own (`id#2`, ...). Every edge then points forward in time, so the chain has no cycles. Origins only give
+ * and the burn sink only takes; they stay one node each. `drawn` maps a holder to its node (its plate, if folded).
+ */
+function visits(events: ReportEvent[], drawn: (real: string) => string) {
+  const count = new Map<string, number>()
+  const gave = new Set<string>()
+  const at = (id: string) => {
+    const n = count.get(id) ?? 1
+    return n > 1 ? `${id}#${n}` : id
+  }
+  const receive = (id: string) => {
+    if (gave.delete(id)) count.set(id, (count.get(id) ?? 1) + 1)
+    return at(id)
+  }
+  const out = new Map<ReportEvent, { holder: string; other?: string }>()
+  for (let i = events.length - 1; i >= 0; i--) {
+    const event = events[i] // oldest first
+    const id = drawn(event.holder)
+    if (event.type === "TRANSFERRED" && drawn(event.other) !== id) {
+      const holder = at(id)
+      out.set(event, { holder, other: receive(drawn(event.other)) })
+      gave.add(id)
+    } else if (event.type === "MINTED") {
+      out.set(event, { holder: receive(id) })
+    } else {
+      out.set(event, { holder: at(id), other: event.type === "TRANSFERRED" ? at(id) : undefined })
+      if (event.type === "BURNED") gave.add(id)
+    }
+  }
+  return out
+}
+
 /** Read off the edges before they are netted: what went each way is the point here. */
-function counterpartiesOf(root: string, edges: Map<string, GraphEdge>): Counterparty[] {
+function counterpartiesOf(root: string, edges: Map<string, GraphEdge>, base: (id: string) => string): Counterparty[] {
   const rows = new Map<string, Counterparty>()
   for (const edge of edges.values()) {
-    const received = edge.target === root
-    if (!received && edge.source !== root) continue
-    const id = received ? edge.source : edge.target
+    const received = base(edge.target) === root
+    if (!received && base(edge.source) !== root) continue
+    const id = base(received ? edge.source : edge.target)
     let row = rows.get(id)
     if (!row) rows.set(id, (row = { id, received: new Map(), gave: new Map(), suspicious: false }))
     const side = received ? row.received : row.gave

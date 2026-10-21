@@ -62,7 +62,7 @@ export default function Board({
         data: {
           node,
           selected: selection?.kind === "node" && selection.id === node.id,
-          onToggle: node.folded ? () => onToggle(node.id) : node.group ? () => onToggle(node.group!) : undefined,
+          onToggle: node.folded ? () => onToggle(node.of ?? node.id) : node.group ? () => onToggle(node.group!) : undefined,
         },
       })),
     [graph, placement, selection, onToggle],
