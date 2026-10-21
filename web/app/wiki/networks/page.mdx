@@ -1,0 +1,45 @@
+export const metadata = { title: "Server networks" }
+
+# Server networks
+
+On a network (Velocity with several Paper servers), [HuskSync](https://william278.net/project/husksync) moves a
+player's inventory from server to server. Provenance moves the origin of those items with it. Without that, everything
+a player brings to the second server would turn into `unknown` there.
+
+## Setup
+
+1. Install Provenance on every server that runs HuskSync.
+2. Give every server its own `server.id` in `config.yml`, like `lobby`, `survival`, `farm`. **Two servers with the same
+   id mix up their data.**
+3. Keep `husksync.enabled: true` in `integrations.yml` (the default).
+4. `/prov reload` or restart.
+
+Provenance adds its own data to HuskSync's player snapshot, next to the inventory and the ender chest. When the player
+arrives, their history shows a neutral line instead of red `unknown` items:
+
+```
+0m sync Bob arrived from server survival with 1532 items
+```
+
+While HuskSync is still loading a player, Provenance leaves their inventory alone, so the empty inventory of a player
+who has just joined is not taken for lost items. A rollback of an inventory by an admin in HuskSync rolls the origins
+back with it.
+
+If `server.id` is empty, or the snapshot came from a server without Provenance (or it is the player's first join),
+the items arrive as `unknown`, as they would without the integration.
+
+## Shared database
+
+Servers can use one MySQL / MariaDB or PostgreSQL database, or each their own; both work. With a shared database:
+
+- Each server loads, compacts and prunes only its own rows.
+- `/prov history player` shows the player's journal **from all servers**, with each line marked like `[survival]`.
+- `/prov history block`, `/prov block`, `/prov player`, `/prov links` and web reports look at the current server only:
+  a chest stands on one server.
+
+## Not covered yet
+
+- Links and wealth across the whole network as one picture.
+- Containers moving between servers.
+- Syncing through anything but HuskSync.
+- Server arrivals in web reports.

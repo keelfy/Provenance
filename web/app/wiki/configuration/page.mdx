@@ -1,0 +1,85 @@
+export const metadata = { title: "Configuration" }
+
+# Configuration
+
+Two files in `plugins/Provenance/`: `config.yml` for the plugin and `integrations.yml` for other plugins. Apply
+changes with `/prov reload`. The defaults suit a single server out of the box.
+
+## `server`
+
+| Key | Default | |
+| --- | --- | --- |
+| `server.id` | `""` | Name of this server. Needed on a [network](/wiki/networks); must be different on every server, also when they share a database. Empty switches carrying origins between servers off. |
+
+## `journal`
+
+| Key | Default | |
+| --- | --- | --- |
+| `merge-automation` | `true` | Back-to-back hopper moves of one item between the same two blocks become one event. |
+| `bucket-minutes` | `60` | Events of one kind in the same chunk and bucket of this many minutes are stored as one, with the total amount. |
+| `retention-days` | `30` | How long events that involve a player or create items are kept. |
+| `automation-retention-days` | `3` | How long pure automation (block to block) is kept. It is most of the volume and matters little for moderation. |
+
+## `storage`
+
+| Key | Default | |
+| --- | --- | --- |
+| `type` | `sqlite` | `sqlite` (a file in the plugin folder), `mysql` (MySQL or MariaDB) or `postgresql`. Switching does not move data. |
+| `host` | `localhost` | `mysql` and `postgresql` only, like the keys below. |
+| `port` | `0` | `0` is the default port: 3306 for `mysql`, 5432 for `postgresql`. |
+| `database` | `provenance` | Must exist; the user must be able to create tables in it. |
+| `username`, `password` | `""` | |
+| `flush-interval-seconds` | `30` | How often changes are written to the database. |
+| `prune-interval-hours` | `24` | How often expired journal entries are dropped. |
+| `shutdown-timeout-seconds` | `30` | How long shutdown waits for pending writes. |
+
+> The record lives in memory and is loaded in full at start; writes happen in the background. On a crash, up to
+> `flush-interval-seconds` of changes can be lost. Reconcile repairs counts afterwards, those items come back as
+> `unknown`.
+
+## `reconcile-interval-seconds`
+
+Default `5`. How often [reconcile](/wiki/concepts#reconcile-the-safety-net) compares inventories with the record.
+Lower catches untracked changes sooner at some CPU cost.
+
+## `attribution`
+
+How far, in blocks, from an event an item lying on the ground still counts as coming from it.
+
+| Key | Default | Event |
+| --- | --- | --- |
+| `block-radius` | `2.0` | A block broken by a player |
+| `dispense-radius` | `1.0` | A dispenser or dropper firing |
+| `eject-radius` | `1.0` | Food a campfire drops when it is cooked |
+| `death-radius` | `3.0` | A mob or a player dying |
+| `spill-radius` | `1.5` | A container broken or blown up |
+
+## `commands`
+
+| Key | Default | |
+| --- | --- | --- |
+| `block-reach` | `6` | How far `/prov block` and `history block` look for a container. |
+| `history-rows` | `20` | Lines of `/prov history`. |
+| `block-rows` | `10` | Item types of `/prov block`. |
+| `player-rows` | `10` | Origins of `/prov player`. |
+| `link-rows` | `10` | Players of `/prov links`. |
+| `top-origins` | `6` | Origins named in a `share` line. |
+
+## `web`
+
+See [Web viewer](/wiki/web-viewer).
+
+| Key | Default | |
+| --- | --- | --- |
+| `endpoint` | `""` | Base URL of the web viewer, like `https://prov.example.com`. Empty switches `/prov web` off. |
+| `secret` | `""` | Shared secret; must equal `PROVENANCE_SECRET` on the web server. |
+| `ttl-hours` | `24` | How long a link stays valid. The web server may cap it lower. |
+| `depth` | `2` | How many holders away from the start events are followed. |
+| `max-events` | `2000` | Most events in one report, so it opens on a phone. Longer histories are summed up: the last day stays detailed, older events add up per holder and hour, day or week. |
+| `scan-events` | `50000` | Most journal events read for one report; past this the oldest are left out. |
+
+## `integrations.yml`
+
+| Key | Default | |
+| --- | --- | --- |
+| `husksync.enabled` | `true` | Carry origins along with inventories HuskSync moves between servers. Used only if HuskSync is installed. Needs `server.id`. See [Server networks](/wiki/networks). |

@@ -1,0 +1,71 @@
+export const metadata = { title: "Web viewer" }
+
+# Web viewer
+
+In chat, a history is a list. In the web viewer, it is a graph: holders are plates, moves are arrows, and you can
+follow a stack of diamonds from the mine to the chest it was stolen from and on to the thief's alt. It is this
+site.
+
+## How links work
+
+`/prov web history ...` collects the events, signs them with the shared secret and posts them to the web server, which
+answers with a link. Nothing else is sent.
+
+- The token is in the part of the link after `#`, which browsers do not send to servers or put into logs.
+- A link expires after `web.ttl-hours` (24), at most `MAX_TTL_HOURS` of the web server (72).
+- **Once opened, a link keeps working for `REFRESH_WINDOW_MINUTES` (10)** and then stops, so a link that leaks later
+  is useless. Run the command again for a fresh one.
+- `/prov web revoke <token>` turns a link off at once.
+
+## Running the server
+
+The web viewer is a small Next.js app that keeps reports in SQLite. With Docker, from the repository root:
+
+```
+PROVENANCE_SECRET=<long random string> docker compose up -d --build
+```
+
+It listens on `127.0.0.1:3000`. Put a reverse proxy in front that terminates HTTPS and limits request size, and **does
+not rewrite the path**: the signature covers it. A prebuilt image is published as `ghcr.io/keelfy/provenance-web`.
+
+| Variable | Default | |
+| --- | --- | --- |
+| `PROVENANCE_SECRET` | | Same as the plugin's `web.secret`. Without it every request is refused. |
+| `DATA_DIR` | `data` | Where `reports.db` lives (`/data` in the image). |
+| `MAX_TTL_HOURS` | `72` | Cap on a report's lifetime, whatever the plugin asks for. |
+| `REFRESH_WINDOW_MINUTES` | `10` | How long a link keeps working after its first read. |
+| `MAX_BODY_MB` | `8` | Largest accepted report. |
+
+Then, in the plugin's `config.yml`:
+
+```yaml
+web:
+  endpoint: "https://prov.example.com"
+  secret: "<the same long random string>"
+```
+
+and `/prov reload`.
+
+## Reading a report
+
+The header names where the report starts, the item, how many hops it follows and when the link expires. Long histories are
+summed up to fit `web.max-events`: the last day stays detailed, older moves add up into one arrow per holder and a few
+hours, a day or a week. A copper **Newest N events only** badge means even more existed than `web.scan-events` and the
+oldest were left out.
+
+**Board.** Plates are holders: players, chests, item stacks on the ground, mobs. Arrows are moves, labelled with what
+and how much. Click a plate or an arrow for the events behind it.
+
+**Table.** For a player, a list of everyone they exchanged items with: sent, received, and what.
+
+The toolbar filters by **time** (last 24 hours, last 7 days), **item** and **cause**, and folds noise away:
+
+| Switch | Does |
+| --- | --- |
+| Fold drops | Items taken from the ground go straight to whoever took them, without the stack on the ground in between. |
+| Group similar | Many mobs, chests or boxes of one type become one plate. |
+| Merge visits | A holder is one plate, not a new plate every time items come back to it. |
+| Net two-way | Items passed back and forth between two holders become one arrow with what is left. |
+
+The `preexisting` origin marks items a holder already had when Provenance first looked into it: they are older
+than the plugin and not suspicious. `unknown` is what to look at.

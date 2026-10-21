@@ -1,6 +1,7 @@
 # Provenance web viewer
 
-Receives report snapshots from the plugin and shows them as a board. Runs on bun.
+Receives report snapshots from the plugin and shows them as a board, and serves the plugin's wiki at `/wiki`
+(`app/wiki/**/page.mdx`, order in `lib/wiki.ts`). Runs on bun.
 
 ```
 bun install

@@ -1,0 +1,27 @@
+export const metadata = { title: "Known limitations" }
+
+# Known limitations
+
+Provenance works with shares, not individual items, and some paths of the game are not modelled. What it cannot
+follow, [reconcile](/wiki/concepts#reconcile-the-safety-net) corrects later as `unknown`. Treat a small `unknown`
+share as noise and look at large ones.
+
+## Paths it does not follow
+
+- **Placing and breaking blocks.** Placing Alice's diamond block and breaking it again makes the breaker its origin:
+  a way to launder valuable blocks.
+- A **crafter** that puts its result straight into the next container instead of dropping it.
+- **Minecarts** that pick up items, and the contents of minecarts that break.
+- A **dispenser** placing or picking up a shulker box; leftovers of crafting in a crafter, like an empty bucket.
+- A **hopper picking up part of a stack** because it is nearly full: the rest left on the ground later turns
+  `unknown`.
+- Items dropped while a container is open that merge with another stack on the ground in the same tick.
+- **`hopper.disable-move-event`** in Paper's config turns off the events hoppers are tracked by. With it on, all
+  hopper moves become `unknown`.
+
+## Other
+
+- `/prov history player <name> <item>` finds only plain items. For enchanted or renamed ones, use
+  `/prov web history hand`.
+- Folia is not supported.
+- See [Server networks](/wiki/networks#not-covered-yet) for what does not cross servers.

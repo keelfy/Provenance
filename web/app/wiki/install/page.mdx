@@ -1,0 +1,48 @@
+export const metadata = { title: "Installation" }
+
+# Installation
+
+## 1. Get the jar
+
+Download `provenance-*.jar` from the `provenance-plugin` artifact of the latest
+[plugin build](https://github.com/keelfy/Provenance/actions/workflows/plugin.yml), or build it yourself with JDK 25:
+
+```
+cd plugin
+./gradlew build
+# plugin/paper/build/libs/provenance-<version>.jar
+```
+
+The jar has everything inside. Database drivers for MySQL / MariaDB and PostgreSQL are downloaded by Paper on first
+start; SQLite comes with Paper.
+
+## 2. Install
+
+1. Put the jar into the server's `plugins/` folder.
+2. Start the server. Provenance creates `plugins/Provenance/` with `config.yml`, `integrations.yml` and the
+   `provenance.db` database.
+3. Give your staff the permissions:
+
+| Permission | Default | Grants |
+| --- | --- | --- |
+| `provenance.admin` | op | Every `/prov` command |
+| `provenance.web` | op | `/prov web ...`: links to the web viewer, on top of `provenance.admin` |
+
+All commands only read. No command changes items or the record.
+
+## 3. Check that it works
+
+Mine a few blocks, put them into a chest, look at the chest and run `/prov block`. You should see the items with you
+as their origin.
+
+## Adding it to an existing world
+
+Provenance knows nothing about what happened before it was installed. The first time it looks into a chest or an
+inventory, what is already there is recorded as `preexisting`. That is normal and **not** suspicious, unlike
+`unknown`. Over time, as old items are used up, `preexisting` shares fade.
+
+## After changing the config
+
+Run `/prov reload`. It saves everything, re-reads `config.yml` and `integrations.yml` and loads the record again from
+the database. A broken config is refused and the plugin keeps running on the old one. Changing `storage.type` does
+not move existing data to the new database.

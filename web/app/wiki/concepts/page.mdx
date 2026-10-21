@@ -1,0 +1,97 @@
+export const metadata = { title: "How it works" }
+
+# How it works
+
+Provenance does not tag individual items. It keeps accounts, like a bank: for every place that holds items and every
+type of item there, it knows **how many** there are and **whose** they are, as shares.
+
+## Holders
+
+A holder is anything that holds items:
+
+- **A player.** Inventory, ender chest, the item on the cursor and the crafting grid count as one holder.
+- **A container block.** Chests, barrels, hoppers, furnaces, shelves, pots, lecterns, jukeboxes and so on. A double
+  chest is one holder.
+- **An entity.** An item lying on the ground, a minecart with a chest, a donkey, an item frame, an armor stand, a mob
+  that picked something up.
+- **A shulker box or bundle**, together with what is inside it. Moving the box moves its contents.
+
+Moving items inside one holder (between slots of one chest) changes nothing.
+
+## Pools and mixing
+
+Each holder has one pool per item type. Items in a pool are interchangeable, so their shares mix.
+
+> Alice puts 10 diamonds she mined into a chest. Bob adds 10 of his own. The chest now holds 20 diamonds,
+> **Alice 50%, Bob 50%**. Whoever takes 5 out gets 5 diamonds that are half Alice's, half Bob's.
+
+This is why answers are shares and not "these exact 3 diamonds": in Minecraft, two diamonds in one chest are the same
+thing.
+
+Items with their own components get their own pool: an enchanted or renamed sword is
+`minecraft:diamond_sword#3f9a…`, not a plain `minecraft:diamond_sword`. Wear and the contents of shulker boxes and
+bundles do not split pools, so a pickaxe does not turn into a new item with every block it breaks.
+
+## Origin
+
+**Origin** says who produced the items:
+
+| Origin | Meaning |
+| --- | --- |
+| a player name | Mined, killed, fished or otherwise produced by that player |
+| `mob` | Dropped by a mob nobody killed |
+| `loot` | Found in a loot chest |
+| `trade` | Bought from a villager or a wandering trader |
+| `world` | Dropped by the world on its own: washed-away flowers, decayed leaves, explosions |
+| `preexisting` | Already there when Provenance first looked: items older than the plugin |
+| `creative` | Taken in creative mode |
+| `unknown` | Appeared without any event that explains them |
+| `other` | The sum of many small shares (only the 16 largest are kept by name) |
+
+Origin survives processing. Crafting a diamond block from Alice's diamonds gives a block that is Alice's; smelting,
+brewing, cooking on a campfire, enchanting, the anvil, the grindstone and the smithing table work the same way.
+Otherwise crafting would wash anything clean.
+
+## Custody
+
+**Custody** says which player last put the items into a holder. In a player's own inventory, custody is that player.
+
+Custody is what makes theft visible: when Bob takes diamonds from a chest Alice filled, the record says Bob received
+items **held by Alice**, whoever originally mined them.
+
+## Reconcile: the safety net
+
+Not everything in the game has an event Provenance can follow: placing blocks, eating, tools breaking, other plugins
+giving or taking items. So from time to time Provenance compares the real contents of a holder with its record. This
+happens when a player joins and leaves, on the first click in a container, before dropping and picking up, and every
+`reconcile-interval-seconds` (5 by default).
+
+- **Fewer items than recorded** — the missing ones are written off.
+- **More items than recorded** — the extra ones are recorded as `unknown` (or `creative` for a player in creative).
+
+So `/give`, a dupe glitch or a plugin that hands out items all end up as `unknown`, sooner or later. A precise event
+only adds who did it.
+
+## Links between players
+
+From all of this Provenance computes, per player:
+
+- **Sent / received** — how many items went from one player to another, directly or through chests, drops and
+  hoppers.
+- **Wealth by origin** — whose items a player holds, including what they keep in chests.
+- **Similarity** — how alike two players' wealth is. Two accounts fed from the same source look alike even if they
+  never traded directly.
+
+See [`/prov player`](/wiki/commands#prov-player-name) and [`/prov links`](/wiki/commands#prov-links-name).
+
+## History
+
+Every change is also written to a journal: what moved, from where to where, why (the cause), and when. The journal is
+what `/prov history` and the [web viewer](/wiki/web-viewer) read. Causes you will see:
+
+`mine`, `kill`, `loot`, `pickup`, `drop`, `container`, `craft`, `hopper`, `smelt`, `trade`, `consume`, `place`,
+`break`, `shoot`, `fuel`, `despawn`, `destroy`, `reconcile`, `sync`.
+
+To keep the journal small, back-to-back hopper moves are merged, and events of one kind in the same chunk and hour are
+added up into one line: a mob farm is a few lines per hour, not thousands. Events are kept for 30 days, pure
+automation (block to block) for 3. All of this is set in the [configuration](/wiki/configuration#journal).

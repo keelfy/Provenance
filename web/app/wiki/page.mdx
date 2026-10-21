@@ -1,0 +1,33 @@
+export const metadata = { title: { absolute: "Provenance wiki" } }
+
+# Provenance
+
+Provenance is a Paper plugin that remembers where items came from. It follows every item as it is mined, looted,
+crafted, put into chests, dropped and picked up, and can tell you at any moment **whose items a player is
+carrying** and **how they got them**.
+
+It is built for moderators. The questions it answers:
+
+- **Dupes.** Items that appeared from nowhere are recorded as `unknown` and shown in red in the history.
+- **Theft.** When a player takes items from a chest, the history says whose items they were.
+- **Laundering.** Passing items through a friend or a chest does not wash them: the share of the original owner
+  travels with them, through crafting and smelting too.
+- **Alt accounts and trading rings.** Who sent what to whom, and which players hold suspiciously similar wealth.
+
+Nothing is written into the items themselves. Stacks stay stackable, and players see no difference.
+
+## Requirements
+
+| | |
+| --- | --- |
+| Server | Paper 26.3 |
+| Java | 25 (what Paper 26 needs) |
+| Storage | SQLite out of the box; MySQL / MariaDB or PostgreSQL optional |
+| Optional | [HuskSync](/wiki/networks) for networks, the [web viewer](/wiki/web-viewer) for history graphs |
+
+## Where to go next
+
+- [Installation](/wiki/install) gets the plugin running in a few minutes.
+- [How it works](/wiki/concepts) explains origin, custody and why the numbers are shares, not exact counts.
+- [Commands](/wiki/commands) lists everything under `/prov`.
+- [Moderation recipes](/wiki/moderation) walks through hunting a dupe and a theft step by step.

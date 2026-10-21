@@ -1,0 +1,41 @@
+export const metadata = { title: "Moderation recipes" }
+
+# Moderation recipes
+
+## Someone is selling too many diamonds
+
+1. `/prov player <name>` — what share of their diamonds is `unknown`? A few percent is normal noise; a large share is
+   not.
+2. `/prov history player <name> diamond` — look for **red** lines: diamonds that appeared from nowhere, and when.
+3. Check the cause of the red line. `reconcile` means Provenance found the items during a routine check, without any
+   event that explains them: a dupe, `/give`, or a plugin that hands out items.
+4. `/prov web history player <name> diamond` — open the graph and see where the items went next: who got a share of
+   them.
+
+> `preexisting` is not suspicious: those items were there before Provenance was installed. `creative` is red too,
+> because creative items in survival hands usually should not be there.
+
+## Items went missing from a chest
+
+1. Look at the chest and run `/prov history block`.
+2. Lines like `world 120 64 -33 -> Bob 5 diamond (was held by Alice)` show who took items and whose they were.
+3. `/prov web history block` shows where the thief took them after, `web.depth` holders deep.
+
+## A player says they got everything legitimately
+
+`/prov player <name>` breaks their wealth down by origin. Mostly their own name, `mob`, `loot`, `trade` is a player
+who earns their items. Mostly one other player's name is items that came from that player, through trades, chests or
+drops.
+
+## Alt accounts and trading rings
+
+`/prov links <name>`:
+
+- High **received** from one player and little sent back is a feeder.
+- High **similarity** with no direct trade means the two accounts are fed from the same source.
+
+## A farm floods the history
+
+Mob farms and hoppers are summed up by chunk and hour, and pure automation is kept for only 3 days. If the noise is
+still in the way, use the item filter (`/prov history player <name> <item>`), or in the web viewer turn on **Group
+similar** and **Fold drops**.

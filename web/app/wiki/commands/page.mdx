@@ -1,0 +1,113 @@
+export const metadata = { title: "Commands" }
+
+# Commands
+
+Everything is under `/prov` and needs `provenance.admin`; `/prov web ...` also needs `provenance.web`. Commands only
+read, and check the player's real inventory before they answer, so the numbers are current.
+
+| Command | Shows |
+| --- | --- |
+| `/prov hand` | Origin of the item in your main hand |
+| `/prov block` | What the container you look at holds |
+| `/prov player <name>` | Whose items a player holds |
+| `/prov links [name]` | Who a player traded with, and who is alike |
+| `/prov history block` | Journal of the container you look at |
+| `/prov history player <name> [item]` | Journal of a player |
+| `/prov web history ...` | The same journals as a graph in the [web viewer](/wiki/web-viewer) |
+| `/prov web revoke <token>` | Turns a web link off |
+| `/prov reload` | Re-reads the config |
+
+## `/prov hand`
+
+Origin of the item type you hold, counted over **all** items of that type you carry: they are one pool.
+
+```
+diamond ×64 (all you carry)
+  origin: Alice 62%, unknown 30%, Bob 8%
+```
+
+## `/prov block`
+
+Look at a container (up to `commands.block-reach` blocks away, 6 by default). Lists each item type with its origin and
+custody.
+
+```
+diamond ×20
+  origin: Alice 50%, Bob 50%
+  custody: Alice 50%, Bob 50%
+```
+
+## `/prov player <name>`
+
+The player's wealth by origin: how many items they hold, counted by who produced them, including what they keep in
+chests they filled. The `share` line puts it in percent.
+
+```
+Bob holds, by origin:
+  Alice 1250.0
+  Bob 310.5
+  unknown 12.0
+  share: Alice 79%, Bob 20%, unknown 1%
+```
+
+A low own share and a high share of one other player is worth a look.
+
+## `/prov links [name]`
+
+Players the given one (or you, without a name) is linked to: items **sent** to them, items **received** from them, and
+**similarity** of their wealth, from 0 to 1.
+
+```
+Links of Bob (sent / received / similarity):
+  Alice 0.0 / 1250.0 / 0.9
+  Carol 64.0 / 0.0 / 0.1
+```
+
+## `/prov history block`
+
+The journal of the container you look at, newest first: who put what in, who took what out, and whose items they
+were.
+
+```
+History of world 120 64 -33 (newest first):
+2m container world 120 64 -33 -> Bob 5 diamond (was held by Alice)
+1h container Alice -> world 120 64 -33 10 diamond
+```
+
+## `/prov history player <name> [item]`
+
+The journal of a player, optionally for one item type: `diamond` means `minecraft:diamond`. The item name finds only
+the plain item; for an enchanted or renamed one, hold it and use [`/prov web history hand`](#prov-web-history).
+
+Lines where items **appeared from nowhere**, `unknown` or `creative`, are **red**. They are what you look for when
+hunting dupes.
+
+```
+5m reconcile +64 diamond into Bob (unknown)
+1h mine +3 diamond into Bob (Bob)
+```
+
+Each line starts with how long ago it happened and the cause. On a [network with a shared
+database](/wiki/networks#shared-database), lines from other servers start with the server in brackets, like
+`[survival]`. How many lines are shown is set by `commands.history-rows`.
+
+## `/prov web history`
+
+The same journals, posted to the [web viewer](/wiki/web-viewer). The chat prints a `[open]` link.
+
+- `/prov web history block`
+- `/prov web history player <name> [item]`
+- `/prov web history hand` — the player's journal for exactly the item in your hand, enchantments and name included.
+
+The report follows items `web.depth` holders away from where it starts (2 by default): Alice's chest, the player who
+emptied it, and where that player took the items.
+
+## `/prov web revoke <token>`
+
+Turns a link off before it expires, for example when it was posted in the wrong channel. The token is the part of the
+link after `#`.
+
+## `/prov reload`
+
+Saves everything, re-reads the config files and loads the record from the database again. A config with errors is
+refused, and the old one stays in use.
