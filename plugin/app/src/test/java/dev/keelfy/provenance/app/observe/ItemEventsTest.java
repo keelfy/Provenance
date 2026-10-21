@@ -32,6 +32,7 @@ class ItemEventsTest {
 
     @Test
     void droppingFirstAlignsThePlayerWithWhatTheyHadBeforeTheDrop() {
+        ledger.reconcile(Cause.RECONCILE, alice.holder(), Map.of()); // looked into when they joined
         alice.items.put(DIAMOND, 1L); // what is left after throwing 2
 
         items.dropped(alice, entity, Map.of(DIAMOND, 2L));

@@ -5,13 +5,17 @@ import dev.keelfy.provenance.core.event.LedgerEvent;
 import dev.keelfy.provenance.core.event.PoolState;
 import dev.keelfy.provenance.core.model.Cause;
 import dev.keelfy.provenance.core.model.Holder;
+import dev.keelfy.provenance.core.model.HolderId;
 import dev.keelfy.provenance.core.model.ItemKey;
+import dev.keelfy.provenance.core.model.Kind;
 import dev.keelfy.provenance.core.model.OriginId;
 import dev.keelfy.provenance.core.taint.TaintVector;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
@@ -22,7 +26,8 @@ import org.jspecify.annotations.Nullable;
 /**
  * Account-model ledger: holder × item → pool. Not thread-safe; owned by the server main thread. Commands decide what
  * happened and emit {@link LedgerEvent}s; {@link LedgerState#apply} is the only mutator. Every operation conserves
- * counts except {@link #mint} and {@link #burn}; shortfalls are minted as {@link OriginId#UNKNOWN}.
+ * counts except {@link #mint} and {@link #burn}; shortfalls are minted as {@link OriginId#UNKNOWN}, or as
+ * {@link OriginId#PREEXISTING} when the holder was never looked into.
  *
  * @author keelfy
  */
@@ -32,6 +37,13 @@ public final class Ledger implements LedgerView {
 
     private final LedgerState state = new LedgerState();
     private final Journal journal;
+    /**
+     * Holders whose whole contents a reconcile has compared with the world. Unlike the pools it outlives an empty
+     * holder: items that later turn up unexplained in an emptied chest are suspicious, not old.
+     */
+    private final Set<HolderId> seen = new HashSet<>();
+
+    private final List<HolderId> newlySeen = new ArrayList<>();
 
     public Ledger() {
         this(System::currentTimeMillis);
@@ -110,6 +122,7 @@ public final class Ledger implements LedgerView {
      * that crossed servers keep their origin instead of reappearing as {@link OriginId#UNKNOWN}.
      */
     public void sync(Holder player, Holder from, Map<ItemKey, PoolState> pools) {
+        see(player); // what it holds now is known: anything more is unexplained
         if (!pools.isEmpty() || state.getHolders().contains(player)) {
             val ordered = new TreeMap<ItemKey, PoolState>(BY_KEY);
             ordered.putAll(pools);
@@ -119,7 +132,24 @@ public final class Ledger implements LedgerView {
 
     /** Snapshot of everything changed since the previous call; dirty tracking and the pending journal start over. */
     public LedgerChanges drainChanges() {
-        return new LedgerChanges(state.drainDirty(), state.getFlows().drainDirty(), journal.drain(), journal.getSeq());
+        val seenNow = List.copyOf(newlySeen);
+        newlySeen.clear();
+        return new LedgerChanges(
+                state.drainDirty(), state.getFlows().drainDirty(), journal.drain(), journal.getSeq(), seenNow);
+    }
+
+    /** @return whether this is the first time {@code holder} is looked into */
+    private boolean see(Holder holder) {
+        if (!seen.add(holder.id())) {
+            return false;
+        }
+        newlySeen.add(holder.id());
+        return true;
+    }
+
+    /** Loads a holder that was looked into before the restart. */
+    public void restoreSeen(HolderId holder) {
+        seen.add(holder);
     }
 
     /** Loads persisted state without marking it dirty. */
@@ -159,7 +189,18 @@ public final class Ledger implements LedgerView {
             val custody = to.isPlayer() ? state.custodyOf(from, item) : TaintVector.EMPTY;
             emit(cause, new LedgerEvent.Transferred(from, to, item, moved, custody));
         }
-        mint(cause, to, item, amount - moved, OriginId.UNKNOWN);
+        mint(cause, to, item, amount - moved, untracked(from));
+    }
+
+    /**
+     * Where untracked items {@code from} gave away came from. A container nobody has looked into, e.g. a chest a hopper
+     * drains, still holds what it held before tracking began.
+     */
+    private OriginId untracked(Holder from) {
+        val kind = from.id().kind();
+        return (kind == Kind.BLOCK || kind == Kind.SHULKER) && !seen.contains(from.id())
+                ? OriginId.PREEXISTING
+                : OriginId.UNKNOWN;
     }
 
     /** Moves several items at once, e.g. a stack together with what it carries inside. */
@@ -194,11 +235,16 @@ public final class Ledger implements LedgerView {
         reconcile(cause, holder, actual, OriginId.UNKNOWN);
     }
 
-    /** Like {@link #reconcile(Cause, Holder, Map)} but unexplained items are attributed to {@code mintOrigin}. */
+    /**
+     * Like {@link #reconcile(Cause, Holder, Map)} but unexplained items are attributed to {@code mintOrigin}. The first
+     * reconcile of a holder finds what it held before tracking began: those are {@link OriginId#PREEXISTING} instead of
+     * {@link OriginId#UNKNOWN}.
+     */
     public void reconcile(Cause cause, Holder holder, Map<ItemKey, Long> actual, OriginId mintOrigin) {
+        val origin = see(holder) && mintOrigin.equals(OriginId.UNKNOWN) ? OriginId.PREEXISTING : mintOrigin;
         sorted(delta(holder, actual)).forEach((item, diff) -> {
             if (diff > 0) {
-                mint(cause, holder, item, diff, mintOrigin);
+                mint(cause, holder, item, diff, origin);
             } else {
                 burn(cause, holder, item, -diff);
             }

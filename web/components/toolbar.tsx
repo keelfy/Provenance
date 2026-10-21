@@ -42,6 +42,14 @@ function Pick({
 
 export type View = "board" | "table"
 
+const HOUR = 3_600_000
+
+/** How far back to read, counted from when the report was made */
+const PERIODS = [
+  { value: String(24 * HOUR), label: "Last 24 hours" },
+  { value: String(7 * 24 * HOUR), label: "Last 7 days" },
+]
+
 const FOLDS: { key: keyof Folding; label: string; hint: string }[] = [
   { key: "drops", label: "Fold drops", hint: "Show items taken from the ground as moving straight to whoever took them" },
   { key: "groups", label: "Group similar", hint: "Show many mobs, chests or boxes of one type as one plate" },
@@ -94,6 +102,12 @@ export function Toolbar({ report, view, onView, facets, filters, onFilters, fold
             ))}
           </div>
         ) : null}
+        <Pick
+          label="Any time"
+          value={filters.since === null ? null : String(report.created - filters.since)}
+          options={PERIODS}
+          onChange={(period) => onFilters({ ...filters, since: period === null ? null : report.created - Number(period) })}
+        />
         <Pick
           label="Any item"
           value={filters.item}

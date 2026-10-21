@@ -67,5 +67,8 @@ web:
   ttl-hours: 24
   # How many holders away from the starting point events are followed.
   depth: 2
-  # Most events in one snapshot; the newest are kept.
+  # Most events in one snapshot, so it opens on a phone. A longer history is summed up to fit: the last day stays as
+  # detailed as stored while it fits, older events add up into a line per holder and a few hours, a day or a week.
   max-events: 2000
+  # Most journal events read for one snapshot before it is summed up; past this the oldest are left out.
+  scan-events: 50000

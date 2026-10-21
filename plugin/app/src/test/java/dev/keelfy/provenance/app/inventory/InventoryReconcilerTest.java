@@ -24,6 +24,7 @@ class InventoryReconcilerTest {
 
     @Test
     void aSyncedInventoryIsNeitherMintedNorBurnedUntilTheSyncIsDone() {
+        reconciler.reconcile(alice); // looked into when they joined
         ledger.mint(Cause.MINE, alice.holder(), DIAMOND, 3, alice.origin());
         syncing.add(alice.id());
 

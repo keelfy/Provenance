@@ -18,7 +18,12 @@ public record OriginId(String key) {
     public static final OriginId CREATIVE = new OriginId("env:creative");
     /** Items the world dropped on its own: washed-away flowers, decayed leaves, explosions. */
     public static final OriginId WORLD = new OriginId("env:world");
-    /** Items that predate tracking or appeared through an unmodelled path. */
+    /**
+     * Items a holder already had the first time it was looked into: on a world that is older than the plugin, what
+     * chests and inventories held before. Not suspicious, unlike {@link #UNKNOWN}.
+     */
+    public static final OriginId PREEXISTING = new OriginId("env:preexisting");
+    /** Items that appeared through an unmodelled path. */
     public static final OriginId UNKNOWN = new OriginId("env:unknown");
     /** Aggregated tail removed by top-K pruning. */
     public static final OriginId OTHER = new OriginId("env:other");

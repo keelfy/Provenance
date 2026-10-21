@@ -67,6 +67,48 @@ class SqlStoreTest {
     }
 
     @Test
+    void holdersLookedIntoStayKnownAfterRestart() throws Exception {
+        val ledger = new Ledger();
+        ledger.reconcile(CAUSE, chest, Map.of());
+
+        try (val store = store("seen.db")) {
+            val changes = ledger.drainChanges();
+            store.write(changes);
+            store.write(changes); // a retried batch stores the same holder again
+        }
+
+        val restored = new Ledger();
+        try (val store = store("seen.db")) {
+            store.load(restored);
+        }
+        restored.reconcile(CAUSE, chest, Map.of(DIAMOND, 1L));
+        assertThat(restored.pool(chest, DIAMOND).getOrigin()).isEqualTo(TaintVector.of(OriginId.UNKNOWN));
+        assertThat(restored.drainChanges().seen()).isEmpty();
+    }
+
+    @Test
+    void holdersTrackedBeforeSeenExistedCountAsLookedInto() throws Exception {
+        val ledger = new Ledger();
+        ledger.mint(CAUSE, chest, DIAMOND, 1, alice);
+        try (val store = store("old.db")) {
+            store.write(ledger.drainChanges());
+        }
+        try (val connection = DriverManager.getConnection("jdbc:sqlite:" + dir.resolve("old.db"));
+                val statement = connection.createStatement()) {
+            statement.execute("DROP TABLE seen");
+            statement.execute("DELETE FROM meta WHERE name = 'seen_seeded'");
+        }
+
+        val restored = new Ledger();
+        try (val store = store("old.db")) {
+            store.load(restored);
+        }
+        restored.reconcile(CAUSE, chest, Map.of(DIAMOND, 2L));
+        assertThat(restored.pool(chest, DIAMOND).getOrigin().share(OriginId.UNKNOWN))
+                .isCloseTo(0.5, offset(1e-5));
+    }
+
+    @Test
     void emptiedHolderIsDeleted() throws Exception {
         val ledger = new Ledger();
         ledger.mint(CAUSE, chest, DIAMOND, 3, alice);
@@ -152,7 +194,7 @@ class SqlStoreTest {
         try (val store = store("c.db")) {
             store.write(head);
             // Simulates a crash between journal and snapshot: only the events of the tail reach the journal.
-            store.write(new LedgerChanges(Map.of(), List.of(), tail.events(), head.lastSeq()));
+            store.write(new LedgerChanges(Map.of(), List.of(), tail.events(), head.lastSeq(), List.of()));
         }
 
         val restored = new Ledger();

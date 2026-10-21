@@ -6,6 +6,7 @@ import dev.keelfy.provenance.core.Ledger;
 import dev.keelfy.provenance.core.LedgerChanges;
 import dev.keelfy.provenance.core.event.Envelope;
 import dev.keelfy.provenance.core.model.Holder;
+import dev.keelfy.provenance.core.model.HolderId;
 import dev.keelfy.provenance.core.model.HolderMeta;
 import dev.keelfy.provenance.core.model.ItemKey;
 import dev.keelfy.provenance.core.model.Kind;
@@ -48,6 +49,7 @@ public final class SqlStore implements ChangeSink {
 
     private static final String LAST_SEQ = "last_seq";
     private static final String COMPACTED = "compacted";
+    private static final String SEEN_SEEDED = "seen_seeded";
     /** How long after a bucket ends its last stragglers (items still on the ground, queued writes) may arrive. */
     private static final long SETTLE_MILLIS = Duration.ofMinutes(10).toMillis();
     /** A database that is down fails a write after this long instead of hanging the writer thread. */
@@ -87,6 +89,7 @@ public final class SqlStore implements ChangeSink {
     private final String insertEvent;
     private final String upsertFlow;
     private final String upsertMeta;
+    private final String insertSeen;
 
     /**
      * @param server tells this server's rows from those of other servers in the same database
@@ -102,6 +105,7 @@ public final class SqlStore implements ChangeSink {
         insertEvent = dialect.insertIgnore("event", withServer(EVENT_COLUMN_LIST), "seq");
         upsertFlow = dialect.upsert("flow", List.of("server", "from_origin", "to_origin", "item"), List.of("amount"));
         upsertMeta = dialect.upsert("meta", List.of("server", "name"), List.of("value"));
+        insertSeen = dialect.insertIgnore("seen", List.of("server", "holder_kind", "holder_id"), "holder_id");
 
         val config = new HikariConfig();
         config.setPoolName("provenance");
@@ -121,6 +125,8 @@ public final class SqlStore implements ChangeSink {
             if (schemaVersion(statement) != SCHEMA_VERSION) {
                 createSchema(statement);
             }
+            createSeen(statement);
+            seedSeen(connection);
         } catch (SQLException | RuntimeException e) {
             source.close();
             throw e;
@@ -143,7 +149,7 @@ public final class SqlStore implements ChangeSink {
         val key = dialect.key();
         val text = dialect.longText();
 
-        for (val table : List.of("pool", "flow", "event", "meta", "holder_info")) {
+        for (val table : List.of("pool", "flow", "event", "meta", "holder_info", "seen")) {
             statement.execute("DROP TABLE IF EXISTS " + table);
         }
         statement.execute("DELETE FROM schema_version");
@@ -165,6 +171,39 @@ public final class SqlStore implements ChangeSink {
         statement.execute("CREATE INDEX event_holder ON event (holder, time)");
         statement.execute("CREATE INDEX event_other ON event (other, time)");
         statement.execute("INSERT INTO schema_version VALUES (" + SCHEMA_VERSION + ")");
+    }
+
+    /** Came after schema 7 and only adds rows, so it needs no reset of what is stored. */
+    private void createSeen(Statement statement) throws SQLException {
+        val key = dialect.key();
+        statement.execute("CREATE TABLE IF NOT EXISTS seen (holder_kind " + key + " NOT NULL, holder_id " + key
+                + " NOT NULL, server " + key + " NOT NULL, PRIMARY KEY (server, holder_kind, holder_id))"
+                + dialect.tableOptions(true));
+    }
+
+    /**
+     * A store written before {@code seen} existed already tracks its holders: they count as looked into, or every
+     * unexplained item in them would pass for one from before tracking.
+     */
+    private void seedSeen(Connection connection) throws SQLException {
+        if (meta(connection, SEEN_SEEDED) != 0) {
+            return;
+        }
+        connection.setAutoCommit(false);
+        try (val seed = connection.prepareStatement("INSERT INTO seen (server, holder_kind, holder_id)"
+                        + " SELECT DISTINCT server, holder_kind, holder_id FROM pool WHERE server = ?");
+                val meta = connection.prepareStatement(upsertMeta)) {
+            seed.setString(1, server);
+            seed.executeUpdate();
+            bindMeta(meta, SEEN_SEEDED, 1);
+            meta.executeUpdate();
+            connection.commit();
+        } catch (SQLException | RuntimeException e) {
+            connection.rollback();
+            throw e;
+        } finally {
+            connection.setAutoCommit(true);
+        }
     }
 
     /**
@@ -195,6 +234,12 @@ public final class SqlStore implements ChangeSink {
                             new OriginId(rows.getString(2)),
                             new ItemKey(rows.getString(3)),
                             rows.getDouble(4)));
+                }
+            }
+
+            try (val rows = query(connection, "SELECT holder_kind, holder_id FROM seen WHERE server = ?")) {
+                while (rows.next()) {
+                    ledger.restoreSeen(new HolderId(Kind.valueOf(rows.getString(1)), rows.getString(2)));
                 }
             }
 
@@ -231,7 +276,8 @@ public final class SqlStore implements ChangeSink {
                             "INSERT INTO pool (server, holder_kind, holder_id, item, count, origin, custody) VALUES (?, ?, ?, ?, ?, ?, ?)");
                     val flow = connection.prepareStatement(upsertFlow);
                     val event = connection.prepareStatement(insertEvent);
-                    val meta = connection.prepareStatement(upsertMeta)) {
+                    val meta = connection.prepareStatement(upsertMeta);
+                    val seen = connection.prepareStatement(insertSeen)) {
 
                 for (val entry : changes.holders().entrySet()) {
                     val holder = entry.getKey();
@@ -264,12 +310,19 @@ public final class SqlStore implements ChangeSink {
                     bind(event, EventRow.of(envelope), server);
                     event.addBatch();
                 }
+                for (val holder : changes.seen()) {
+                    seen.setString(1, server);
+                    seen.setString(2, holder.kind().name());
+                    seen.setString(3, holder.id());
+                    seen.addBatch();
+                }
                 bindMeta(meta, LAST_SEQ, changes.lastSeq());
 
                 delete.executeBatch();
                 insert.executeBatch();
                 flow.executeBatch();
                 event.executeBatch();
+                seen.executeBatch();
                 meta.executeUpdate();
                 connection.commit();
             } catch (SQLException | RuntimeException e) {

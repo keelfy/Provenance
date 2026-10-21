@@ -37,7 +37,8 @@ public record Settings(
         String webSecret,
         int webTtlHours,
         int webDepth,
-        int webMaxEvents) {
+        int webMaxEvents,
+        int webScanEvents) {
 
     private static final int TICKS_PER_SECOND = 20;
     private static final String DEFAULT_SERVER = "default";
@@ -74,7 +75,8 @@ public record Settings(
                 trimmed(config, "web.secret"),
                 (int) whole(config, "web.ttl-hours"),
                 (int) whole(config, "web.depth"),
-                (int) whole(config, "web.max-events"));
+                (int) whole(config, "web.max-events"),
+                (int) whole(config, "web.scan-events"));
     }
 
     private static Database database(ConfigSource config) {

@@ -187,7 +187,7 @@ app/       Логика плагина без платформы (anti-corruptio
            world/{SpawnContexts, SpawnSource, WorldPos, ItemDrop},
            observe/{World, Automation, Item, Showcase}Events — факты игры → команды Ledger,
            command/{ProvService, Labels, HistoryView, Line, Span, Tone, Sender} — команды /prov и их вывод,
-           web/{ReportJson, ReportPublisher},
+           web/{ReportCompaction, ReportJson, ReportPublisher},
            port/{Scheduler, Log, ConfigSource, PlayerDirectory, OnlinePlayer, PlayerSync} — всё, что нужно от платформы
 paper/     Адаптер Bukkit/Paper: PaperScheduler, PaperLog, PaperConfig (config.yml и integrations.yml), PaperDirectory, PaperPlayer, PaperSender,
            Holders, ItemKeys, Views, Positions (Bukkit → значения app/core),

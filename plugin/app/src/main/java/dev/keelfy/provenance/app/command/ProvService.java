@@ -7,6 +7,7 @@ import dev.keelfy.provenance.app.port.Log;
 import dev.keelfy.provenance.app.port.OnlinePlayer;
 import dev.keelfy.provenance.app.port.PlayerDirectory;
 import dev.keelfy.provenance.app.port.Scheduler;
+import dev.keelfy.provenance.app.web.ReportCompaction;
 import dev.keelfy.provenance.app.web.ReportJson;
 import dev.keelfy.provenance.app.web.ReportPublisher;
 import dev.keelfy.provenance.core.Ledger;
@@ -227,14 +228,15 @@ public final class ProvService {
         return true;
     }
 
-    /** Traces on the writer thread, builds the snapshot on the main one (names), uploads off both. */
+    /** Traces and sums up on the writer thread, builds the snapshot on the main one (names), uploads off both. */
     private boolean publish(Sender sender, String kind, Holder root, @Nullable ItemKey item) {
         if (!settings.webEnabled()) {
             return error(sender, WEB_OFF);
         }
 
         val query = new ReportJson.Query(kind, root, item, settings.webDepth());
-        storage.trace(root, item, settings.webDepth(), settings.webMaxEvents())
+        storage.trace(root, item, settings.webDepth(), settings.webScanEvents())
+                .thenApply(trace -> ReportCompaction.fit(trace, System.currentTimeMillis(), settings.webMaxEvents()))
                 .whenComplete((trace, failure) -> onMain(() -> {
                     if (failure != null) {
                         log.warning("Could not trace history for " + root, failure);

@@ -5,9 +5,11 @@ export type Filters = {
   item: string | null
   cause: string | null
   suspiciousOnly: boolean
+  /** Only events that lasted until this time or later; older ones are summed up coarsely by the plugin anyway */
+  since: number | null
 }
 
-export const NO_FILTERS: Filters = { item: null, cause: null, suspiciousOnly: false }
+export const NO_FILTERS: Filters = { item: null, cause: null, suspiciousOnly: false, since: null }
 
 /** Each shortcut the story takes can be switched off, to read the events as the plugin recorded them. */
 export type Folding = {
@@ -114,6 +116,7 @@ export const createdBy = (cause: string) => CREATED_BY[cause] ?? "Created by"
 export function matches(event: ReportEvent, f: Filters): boolean {
   if (f.cause && event.cause !== f.cause) return false
   if (f.suspiciousOnly && !event.suspicious) return false
+  if (f.since !== null && (event.until ?? event.time) < f.since) return false
   if (f.item && !involves(event, f.item)) return false
   return true
 }

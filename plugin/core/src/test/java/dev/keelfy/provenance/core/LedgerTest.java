@@ -92,6 +92,7 @@ class LedgerTest {
 
     @Test
     void reconcileMintsUnknownAndBurnsMissing() {
+        ledger.reconcile(CAUSE, alice, Map.of());
         ledger.mint(CAUSE, alice, DIAMOND, 3, aliceOrigin);
         ledger.reconcile(CAUSE, alice, Map.of(DIAMOND, 5L, DIAMOND_BLOCK, 1L));
 
@@ -102,6 +103,32 @@ class LedgerTest {
 
         ledger.reconcile(CAUSE, alice, Map.of());
         assertThat(ledger.getHolders()).doesNotContain(alice);
+    }
+
+    @Test
+    void firstLookIntoAHolderFindsWhatItHadBeforeTracking() {
+        ledger.reconcile(CAUSE, chest, Map.of(DIAMOND, 2L));
+        assertThat(ledger.pool(chest, DIAMOND).getOrigin()).isEqualTo(TaintVector.of(OriginId.PREEXISTING));
+
+        // Emptied, it is still known: what turns up in it later is unexplained
+        ledger.reconcile(CAUSE, chest, Map.of());
+        ledger.reconcile(CAUSE, chest, Map.of(DIAMOND, 1L));
+        assertThat(ledger.pool(chest, DIAMOND).getOrigin()).isEqualTo(TaintVector.of(OriginId.UNKNOWN));
+
+        // Creative stays creative
+        ledger.reconcile(CAUSE, bob, Map.of(DIAMOND, 1L), OriginId.CREATIVE);
+        assertThat(ledger.pool(bob, DIAMOND).getOrigin()).isEqualTo(TaintVector.of(OriginId.CREATIVE));
+    }
+
+    @Test
+    void shortfallOfAContainerNobodyLookedIntoIsPreexisting() {
+        val hopper = Holder.block("world", 1, 63, 2);
+        ledger.transfer(CAUSE, chest, hopper, DIAMOND, 1);
+        assertThat(ledger.pool(hopper, DIAMOND).getOrigin()).isEqualTo(TaintVector.of(OriginId.PREEXISTING));
+
+        ledger.reconcile(CAUSE, chest, Map.of());
+        ledger.transfer(CAUSE, chest, hopper, DIAMOND_BLOCK, 1);
+        assertThat(ledger.pool(hopper, DIAMOND_BLOCK).getOrigin()).isEqualTo(TaintVector.of(OriginId.UNKNOWN));
     }
 
     @Test

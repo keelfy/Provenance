@@ -42,6 +42,11 @@ test("filters narrow events, including conversions by either side", () => {
   expect(buildGraph(report, { ...NO_FILTERS, suspiciousOnly: true }).events.map((x) => x.seq)).toEqual([1])
 })
 
+test("a period keeps events that lasted into it", () => {
+  const summed = { ...report, events: [...report.events, e(6, { type: "BURNED", holder: "PLAYER/bob", item: "minecraft:dirt", amount: 1, time: 1, until: 9 })] }
+  expect(buildGraph(summed, { ...NO_FILTERS, since: 4 }).events.map((x) => x.seq)).toEqual([6, 5, 4])
+})
+
 test("loot of a killed creature starts at the creature, not at a node named after the killer", () => {
   const kill: Report = {
     ...report,
